@@ -79,7 +79,7 @@ const { useState, useCallback, useRef, useEffect } = React;
 
 const CONFIG = {
     // Widget user payment (customers pay to cancel gym)
-    USER_STRIPE_LINK: 'https://buy.stripe.com/8wMdR23Ct5x0dJI8ww',
+    USER_STRIPE_LINK: 'https://buy.stripe.com/8x2dR23Ct5x0dJI8ww',
     
     // License purchase (businesses buy the widget)
     LICENSE_STRIPE_LINK: 'https://buy.stripe.com/fZu3coc8Z1gK7lk2uR',
@@ -604,7 +604,7 @@ const IntakeScreen = ({ data, onUpdate, onNext }) => {
 
 
         <div>
-          <label className="block text-sm font-semibold mb-2 text-white/80">Membership Card (Optional)</label>
+          <label className="block text-sm font-semibold mb-2 text-white/80">Membership Card or ID *</label>
           <input
             type="file"
             accept="image/*,.pdf"
@@ -1354,6 +1354,15 @@ const LicenseModal = ({ onClose }) => {
               </div>
             </div>
 
+            <div className="bg-red-500/10 border-2 border-red-500 rounded-xl p-4 mb-6">
+              <div className="text-red-400 font-bold mb-2">⚠️ BEFORE YOU PURCHASE:</div>
+              <div className="text-white/90 text-sm space-y-1">
+                <div>• Create a Stripe account at <span className="font-mono">stripe.com</span> (free)</div>
+                <div>• Set up a $5.99 payment link in your Stripe dashboard</div>
+                <div>• Have your Stripe payment link ready to paste during checkout</div>
+              </div>
+            </div>
+
             <button onClick={() => setStep('form')} className="w-full bg-black hover:bg-gray-900 text-white text-xl font-bold py-6 rounded-2xl transition-all">
               Continue
             </button>
@@ -1420,6 +1429,16 @@ const LicenseModal = ({ onClose }) => {
               <div className="bg-white/5 border border-white/10 rounded-xl p-4">
                 <div className="font-bold text-white mb-1">GOTCHA-BRO-Widget-{window.lastSaleNumber}.html</div>
                 <div className="text-white/60 text-sm">Widget with your Stripe link</div>
+              </div>
+            </div>
+
+            <div className="bg-cyan-500/10 border-2 border-cyan-500 rounded-xl p-5 mb-6">
+              <div className="text-cyan-400 font-bold mb-3">🚀 HOW TO DEPLOY YOUR WIDGET:</div>
+              <div className="text-white/90 text-sm space-y-2">
+                <div><strong>1.</strong> Your widget is pre-configured with YOUR Stripe link</div>
+                <div><strong>2.</strong> Upload the HTML file to your web hosting or GitHub Pages</div>
+                <div><strong>3.</strong> That's it! Your widget is ready to accept payments immediately</div>
+                <div className="text-white/60 text-xs mt-3">No coding required. No setup needed. Start earning $5.99 per customer instantly.</div>
               </div>
             </div>
 
@@ -1561,6 +1580,56 @@ const App = () => {
 };
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+
+// ========================================
+// 👑 GOD MODE ACTIVATION - MOBILE + DESKTOP
+// ========================================
+
+// Desktop: Ctrl+Shift+G
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey && e.shiftKey && e.key === 'G') {
+    e.preventDefault();
+    const badge = document.getElementById('admin-badge');
+    if (badge) {
+      badge.style.display = badge.style.display === 'none' ? 'block' : 'none';
+    }
+  }
+});
+
+// Mobile: Triple-tap "O" in GOTCHA BRO logo + PIN 2020
+let tapCount = 0;
+let tapTimer = null;
+
+document.addEventListener('click', (e) => {
+  const text = e.target.textContent || '';
+  const isLogo = e.target.closest('.text-transparent') || e.target.closest('[class*="GOTCHA"]');
+  
+  if (text.includes('O') && isLogo) {
+    tapCount++;
+    clearTimeout(tapTimer);
+    
+    if (tapCount === 3) {
+      const pin = prompt('Enter Admin PIN:');
+      if (pin === '2020') {
+        const password = prompt('Enter Admin Password:');
+        if (password && password === CONFIG.ADMIN_PASSWORD) {
+          AdminGodMode.activateBypass(24);
+          alert('✅ God Mode Activated!');
+          const badge = document.getElementById('admin-badge');
+          if (badge) badge.style.display = 'block';
+        } else {
+          alert('❌ Incorrect password');
+        }
+      } else if (pin) {
+        alert('❌ Incorrect PIN');
+      }
+      tapCount = 0;
+    }
+    
+    tapTimer = setTimeout(() => { tapCount = 0; }, 600);
+  }
+});
+
     </script>
 </body>
 </html>
