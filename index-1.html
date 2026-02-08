@@ -1,0 +1,1957 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GOTCHA BRO - Cancel Your Gym Membership</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBkIbnQRBatW_LdxFGMZHiNdN1fnxLk8bY&libraries=places"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Syne:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        * {
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        body {
+            font-family: 'Space Grotesk', sans-serif;
+            background: linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%);
+            min-height: 100vh;
+        }
+        h1, h2, h3 {
+            font-family: 'Syne', sans-serif;
+        }
+        @keyframes fadeInUp {
+            from { 
+                opacity: 0; 
+                transform: translateY(30px); 
+            }
+            to { 
+                opacity: 1; 
+                transform: translateY(0); 
+            }
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+        @keyframes shimmer {
+            0% { background-position: -1000px 0; }
+            100% { background-position: 1000px 0; }
+        }
+        .animate-in {
+            animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .shimmer {
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+            background-size: 1000px 100%;
+            animation: shimmer 2s infinite;
+        }
+        .glass {
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .glow {
+            box-shadow: 0 0 40px rgba(34, 211, 238, 0.3);
+        }
+        .signature-canvas {
+            touch-action: none;
+        }
+        .pac-container { background-color: #1a1a1a; border-radius: 12px; z-index: 10000; }
+        .pac-item { color: #fff; padding: 12px; }
+    </style>
+</head>
+<body>
+    <div id="admin-badge" style="display:none;position:fixed;bottom:20px;right:20px;background:linear-gradient(135deg,#8b5cf6,#06b6d4);padding:10px 18px;border-radius:50px;font-size:10px;font-weight:700;cursor:pointer;z-index:999999">👑</div>
+    <!-- LICENSE INFO -->
+    <div id="root"></div>
+    
+    <script type="text/babel">
+const { useState, useCallback, useRef, useEffect } = React;
+
+// ========================================
+// 🔧 CONFIGURATION
+// ========================================
+
+const CONFIG = {
+    // Widget user payment (customers pay to cancel gym)
+    USER_STRIPE_LINK: 'https://buy.stripe.com/8x2dR23Ct5x0dJI8Tf2Nq01',
+    
+    // License purchase (businesses buy the widget)
+    LICENSE_STRIPE_LINK: 'https://buy.stripe.com/fZu3coc8Z1gK7lk2uR',
+    LICENSE_PRICE: 197,
+    
+    // Owner email for notifications
+    OWNER_EMAIL: 'infomometamoney@gmail.com',
+    
+    // Widget version
+    VERSION: '1.1.0',
+    ADMIN_PASSWORD: 'gotchabitch',
+    DOMAIN: 'www.gotchabro.net'
+};
+
+
+const AdminGodMode = {
+    hasValidBypass() {
+        try {
+            const d = JSON.parse(localStorage.getItem('gb_bp') || '{}');
+            return d.active === true;
+        } catch { return false; }
+    },
+    activateBypass() { localStorage.setItem('gb_bp', JSON.stringify({active: true})); },
+    deactivateBypass() { localStorage.removeItem('gb_bp'); },
+    generateCode(h = 24) {
+        const c = 'GB-' + Math.random().toString(36).substring(2, 10).toUpperCase();
+        const codes = JSON.parse(localStorage.getItem('gb_c') || '{}');
+        codes[c] = {e: Date.now() + (h * 3600000), u: false};
+        localStorage.setItem('gb_c', JSON.stringify(codes));
+        return c;
+    },
+    useCode(c) {
+        const codes = JSON.parse(localStorage.getItem('gb_c') || '{}');
+        if (!codes[c] || codes[c].u || Date.now() > codes[c].e) return {ok: false};
+        codes[c].u = true;
+        localStorage.setItem('gb_c', JSON.stringify(codes));
+        this.activateBypass();
+        return {ok: true};
+    }
+};
+document.addEventListener('DOMContentLoaded', () => {
+    const b = document.getElementById('admin-badge');
+    if (b) document.addEventListener('keydown', e => {
+        if (e.ctrlKey && e.shiftKey && e.key === 'G') b.style.display = b.style.display === 'none' ? 'block' : 'none';
+    });
+});
+
+// ========================================
+// 💾 SALE NUMBERING SYSTEM
+// ========================================
+
+function getNextSaleNumber() {
+    let count = parseInt(localStorage.getItem('gotchaBroSaleCount') || '0');
+    count++;
+    localStorage.setItem('gotchaBroSaleCount', count.toString());
+    return String(count).padStart(3, '0');
+}
+
+// ========================================
+// 🗺️ STATE UTILITIES
+// ========================================
+
+const STATE_ABBREVIATIONS = {
+    "Alabama": "AL", "Alaska": "AK", "Arizona": "AZ", "Arkansas": "AR",
+    "California": "CA", "Colorado": "CO", "Connecticut": "CT", "Delaware": "DE",
+    "Florida": "FL", "Georgia": "GA", "Hawaii": "HI", "Idaho": "ID",
+    "Illinois": "IL", "Indiana": "IN", "Iowa": "IA", "Kansas": "KS",
+    "Kentucky": "KY", "Louisiana": "LA", "Maine": "ME", "Maryland": "MD",
+    "Massachusetts": "MA", "Michigan": "MI", "Minnesota": "MN", "Mississippi": "MS",
+    "Missouri": "MO", "Montana": "MT", "Nebraska": "NE", "Nevada": "NV",
+    "New Hampshire": "NH", "New Jersey": "NJ", "New Mexico": "NM", "New York": "NY",
+    "North Carolina": "NC", "North Dakota": "ND", "Ohio": "OH", "Oklahoma": "OK",
+    "Oregon": "OR", "Pennsylvania": "PA", "Rhode Island": "RI", "South Carolina": "SC",
+    "South Dakota": "SD", "Tennessee": "TN", "Texas": "TX", "Utah": "UT",
+    "Vermont": "VT", "Virginia": "VA", "Washington": "WA", "West Virginia": "WV",
+    "Wisconsin": "WI", "Wyoming": "WY", "District of Columbia": "DC"
+};
+
+function getStateAbbreviation(stateName) {
+    return STATE_ABBREVIATIONS[stateName] || stateName;
+}
+
+// ========================================
+// ⚖️ LEGAL DATABASE - COMPLETE 52 JURISDICTIONS
+// ========================================
+
+// Basic legal information by state (for display)
+const LEGAL_INFO = {
+    "AL": "Alabama Code § 8-19-5 requires written notice for gym membership cancellation.",
+    "AK": "Alaska law requires health clubs to accept written cancellation notices.",
+    "AZ": "Arizona Revised Statutes § 44-1794 protects consumers' rights to cancel health spa memberships.",
+    "AR": "Arkansas law requires health clubs to honor written cancellation requests.",
+    "CA": "California Civil Code § 1812.85 provides strong consumer protections for gym membership cancellation.",
+    "CO": "Colorado law requires health clubs to accept written cancellation notices.",
+    "CT": "Connecticut General Statutes § 21a-43 regulates health club services.",
+    "DE": "Delaware requires health clubs to honor written cancellation requests.",
+    "FL": "Florida Statutes § 501.012 regulates health studio services and written cancellation.",
+    "GA": "Georgia law requires health clubs to accept written cancellation.",
+    "HI": "Hawaii law requires health clubs to honor written cancellation notices.",
+    "ID": "Idaho law provides for written cancellation of health club memberships.",
+    "IL": "Illinois Health Club Act (815 ILCS 645) requires clubs to accept written cancellation.",
+    "IN": "Indiana law requires health clubs to accept written cancellation notices.",
+    "IA": "Iowa law requires written notice for health club membership cancellation.",
+    "KS": "Kansas law requires health clubs to honor written cancellation requests.",
+    "KY": "Kentucky law requires health clubs to accept written cancellation.",
+    "LA": "Louisiana law provides for written cancellation of health club memberships.",
+    "ME": "Maine law requires health clubs to accept written cancellation notices.",
+    "MD": "Maryland Commercial Law § 14-12B regulates health club services.",
+    "MA": "Massachusetts General Laws Chapter 93, Section 82 provides strong consumer protections.",
+    "MI": "Michigan law requires health clubs to honor written cancellation requests.",
+    "MN": "Minnesota Statutes § 325G.42 regulates health club contracts.",
+    "MS": "Mississippi law requires health clubs to accept written cancellation.",
+    "MO": "Missouri law requires health clubs to honor written cancellation notices.",
+    "MT": "Montana law provides for written cancellation of health club memberships.",
+    "NE": "Nebraska law requires health clubs to accept written cancellation.",
+    "NV": "Nevada Revised Statutes Chapter 598 regulates health club services.",
+    "NH": "New Hampshire law requires health clubs to accept written cancellation.",
+    "NJ": "New Jersey Statutes § 56:8-39 provides strong consumer protection for health club members.",
+    "NM": "New Mexico law requires health clubs to honor written cancellation.",
+    "NY": "New York General Business Law Article 29-BB provides comprehensive consumer protections.",
+    "NC": "North Carolina General Statutes § 66-115 regulates health club contracts.",
+    "ND": "North Dakota law requires health clubs to accept written cancellation.",
+    "OH": "Ohio Revised Code § 1787.01 regulates health spa services.",
+    "OK": "Oklahoma Statutes Title 59 § 2001 governs health spa contracts.",
+    "OR": "Oregon Revised Statutes § 646.635 regulates athletic club contracts.",
+    "PA": "Pennsylvania Statutes 73 P.S. § 2141 governs health club contracts.",
+    "RI": "Rhode Island General Laws § 5-57.1 regulates health club services.",
+    "SC": "South Carolina Code § 44-79-10 governs health studio contracts.",
+    "SD": "South Dakota law requires health clubs to honor written cancellation.",
+    "TN": "Tennessee Code § 47-18-801 regulates health and fitness facilities.",
+    "TX": "Texas Occupations Code Chapter 702 regulates health spa memberships.",
+    "UT": "Utah Code § 13-22-3 regulates health spa contracts.",
+    "VT": "Vermont law requires health clubs to accept written cancellation.",
+    "VA": "Virginia Code § 59.1-295 regulates health spa contracts.",
+    "WA": "Washington Revised Code § 19.142 provides consumer protection for health club contracts.",
+    "WV": "West Virginia law requires health clubs to honor written cancellation.",
+    "WI": "Wisconsin Statutes § 134.80 regulates health club contracts.",
+    "WY": "Wyoming law provides for written cancellation of health club memberships.",
+    "DC": "D.C. Code § 28-3819 regulates health club contracts."
+};
+
+// Detailed legal language by state and reason
+const LEGAL_DATABASE = {
+  "Alabama": {
+    "Unable to cancel online": "Under Alabama Code § 8-19-5 and § 8-19-10, your refusal to provide online cancellation options constitutes a material breach of contract and violations of state consumer protection statutes. This notice serves as formal demand for immediate cancellation. Failure to comply within 10 business days will result in filing a civil lawsuit in Alabama state court seeking: (1) actual damages, (2) statutory penalties under § 8-19-10, (3) treble damages where applicable, (4) attorney's fees and costs pursuant to § 8-19-12, and (5) injunctive relief. I will file formal complaints with the Alabama Attorney General's Consumer Protection Division.",
+    "Being billed after cancellation": "Under Alabama Code § 8-19-5 and § 8-19-10, your continued improper billing after written cancellation notice constitutes unauthorized charges and violations of state consumer protection law. This notice serves as formal demand for immediate cessation of all billing and refund of all charges made post-cancellation. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory penalties, treble damages, attorney's fees and costs, and injunctive relief barring further charges.",
+    "Contract terms not honored": "Your failure to honor the membership contract terms violates Alabama Code § 8-1-150 et seq. and constitutes actionable breach of contract. This notice serves as formal demand for immediate compliance and remedy. Failure to cure within 10 business days will result in filing a civil lawsuit seeking compensatory damages, consequential damages, attorney's fees, and costs.",
+    "Relocation / medical": "Under Alabama Code § 8-19-5(b), I am entitled to cancel due to permanent relocation more than 25 miles from your nearest facility and/or qualifying medical condition. Your denial violates statutory cancellation rights. This notice serves as formal demand for immediate cancellation without penalty. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, statutory penalties, attorney's fees, and costs.",
+    "Other": "Your noncompliance with Alabama consumer protection statutes and contract terms is unlawful. I demand immediate remedy and cancellation. Failure to comply within 10 business days will result in filing a civil lawsuit in Alabama state court seeking all available damages, statutory penalties, attorney's fees, costs, and equitable relief."
+  },
+  "Alaska": {
+    "Unable to cancel online": "Under Alaska Stat. § 45.50.471 and § 45.50.531, your failure to provide reasonable cancellation methods constitutes unfair and deceptive trade practices. This notice serves as formal demand. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, treble damages under § 45.50.531(b), attorney's fees under § 45.50.537, costs, and injunctive relief.",
+    "Being billed after cancellation": "Under Alaska Stat. § 45.50.471 and § 45.50.531, your continued improper billing after cancellation constitutes unfair and deceptive trade practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, treble damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach of contract violates Alaska Stat. § 45.50.471. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, consequential damages, attorney's fees, and costs under Alaska law.",
+    "Relocation / medical": "Alaska law provides cancellation rights upon permanent relocation or medical necessity. Your denial is unlawful. I demand immediate cancellation. Failure to comply within 10 business days will result in civil litigation seeking all available remedies including treble damages and attorney's fees.",
+    "Other": "Your violations of Alaska Stat. § 45.50.471 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, treble damages under § 45.50.531(b), attorney's fees, costs, and equitable relief."
+  },
+  "Arizona": {
+    "Unable to cancel online": "Under Arizona Revised Statutes § 44-1522 and § 44-1524, your failure to honor cancellation requests constitutes unlawful deceptive practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages, attorney's fees under § 44-1528, costs, and injunctive relief. I will file complaints with the Arizona Attorney General's Consumer Protection Division.",
+    "Being billed after cancellation": "Under A.R.S. § 44-1522 and § 44-1524, your continued billing after cancellation constitutes unlawful deceptive practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates A.R.S. § 44-1522. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, consequential damages, attorney's fees, and costs.",
+    "Relocation / medical": "Arizona law mandates cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies under A.R.S. § 44-1521 et seq.",
+    "Other": "Your violations of A.R.S. § 44-1522 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, statutory penalties, attorney's fees under § 44-1528, costs, and equitable relief."
+  },
+  "Arkansas": {
+    "Unable to cancel online": "Under Arkansas Code § 4-88-107 and § 4-88-113, your refusal to process cancellation constitutes violations of the Arkansas Deceptive Trade Practices Act. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages, attorney's fees under § 4-88-113(f), costs, and injunctive relief.",
+    "Being billed after cancellation": "Under Arkansas Code § 4-88-107 and § 4-88-113, your continued billing after written cancellation notice constitutes violations of the Arkansas Deceptive Trade Practices Act. Failure to comply within 10 business days will result in civil litigation seeking actual damages, statutory damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates Arkansas Code § 4-88-107. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, consequential damages, attorney's fees under § 4-88-113(f), and costs.",
+    "Relocation / medical": "Arkansas law provides cancellation rights upon permanent relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies.",
+    "Other": "Your violations of Arkansas Code § 4-88-101 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, statutory penalties, attorney's fees, costs, and equitable relief."
+  },
+  "California": {
+    "Unable to cancel online": "Under California Civil Code § 1812.85 and Business and Professions Code § 17200, your refusal to provide accessible cancellation methods constitutes material breach of contract, violations of the Health Studio Services Contract Act, and unfair business practices. Failure to comply within 10 business days will result in filing a civil lawsuit in California Superior Court seeking: (1) actual damages, (2) statutory penalties of up to $2,500 per violation under § 17206, (3) restitution, (4) treble damages where fraud is proven, (5) attorney's fees and costs pursuant to § 1812.85(b) and § 1021.5, and (6) injunctive relief. I will file formal complaints with the California Attorney General's Consumer Protection Division and Department of Consumer Affairs.",
+    "Being billed after cancellation": "Under California Civil Code § 1812.85 and Business and Professions Code § 17200, your continued improper billing after written notice constitutes material breach, violations of the Health Studio Services Contract Act, and unfair business practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory penalties up to $2,500 per violation, restitution, treble damages, attorney's fees and costs, and injunctive relief barring further charges.",
+    "Contract terms not honored": "Your failure to honor contract terms violates California Civil Code § 1812.85 and Business and Professions Code § 17200. Failure to cure within 10 business days will result in filing a civil lawsuit seeking compensatory damages, consequential damages, statutory penalties, attorney's fees and costs, and injunctive relief.",
+    "Relocation / medical": "Under California Civil Code § 1812.85(b)(1), I am entitled to cancel due to permanent relocation more than 25 miles from your nearest facility and/or disabling medical condition. Your denial violates mandatory statutory cancellation rights. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, statutory penalties up to $2,500 per violation, attorney's fees, costs, and declaratory relief.",
+    "Other": "Your violations of California Civil Code § 1812.85 and Business and Professions Code § 17200 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking all available damages, statutory penalties, attorney's fees, costs, restitution, and equitable relief."
+  },
+  "Colorado": {
+    "Unable to cancel online": "Under Colorado Revised Statutes § 6-1-105 and § 6-1-113, your refusal to honor cancellation requests constitutes deceptive trade practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages, attorney's fees under § 6-1-113(2), costs, and injunctive relief.",
+    "Being billed after cancellation": "Under C.R.S. § 6-1-105 and § 6-1-113, your improper billing after cancellation constitutes deceptive trade practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates C.R.S. § 6-1-105. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, consequential damages, attorney's fees under § 6-1-113(2), and costs.",
+    "Relocation / medical": "Colorado law mandates cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies under C.R.S. § 6-1-101 et seq.",
+    "Other": "Your violations of C.R.S. § 6-1-105 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, statutory penalties, attorney's fees, costs, and equitable relief."
+  },
+  "Connecticut": {
+    "Unable to cancel online": "Under Connecticut General Statutes § 42-110b and § 42-110g, your failure to process cancellation constitutes unfair trade practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, punitive damages up to twice actual damages under § 42-110g(a), attorney's fees, costs, and injunctive relief.",
+    "Being billed after cancellation": "Under Conn. Gen. Stat. § 42-110b and § 42-110g, your continued billing after cancellation constitutes unfair trade practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, punitive damages up to twice actual damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates Conn. Gen. Stat. § 42-110b. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, punitive damages, attorney's fees, and costs.",
+    "Relocation / medical": "Connecticut law provides cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies.",
+    "Other": "Your violations of Conn. Gen. Stat. § 42-110a et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, punitive damages up to twice actual damages under § 42-110g(a), attorney's fees, costs, and equitable relief."
+  },
+  "Delaware": {
+    "Unable to cancel online": "Under Delaware Code Title 6 § 2513 and § 2533, your refusal to honor cancellation constitutes deceptive trade practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, treble damages under § 2533(a), attorney's fees, costs, and injunctive relief.",
+    "Being billed after cancellation": "Under 6 Del. C. § 2513 and § 2533, your improper billing after cancellation constitutes deceptive trade practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, treble damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates 6 Del. C. § 2513. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, treble damages under § 2533(a), attorney's fees, and costs.",
+    "Relocation / medical": "Delaware law mandates cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies including treble damages.",
+    "Other": "Your violations of 6 Del. C. § 2511 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, treble damages under § 2533(a), attorney's fees, costs, and equitable relief."
+  },
+  "Florida": {
+    "Unable to cancel online": "Under Florida Statutes § 501.204 and § 501.2075, your refusal to process cancellation constitutes deceptive and unfair trade practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages, attorney's fees under § 501.2105, costs, and injunctive relief. I will file complaints with the Florida Attorney General.",
+    "Being billed after cancellation": "Under Fla. Stat. § 501.204 and § 501.2075, your continued billing after cancellation constitutes deceptive and unfair trade practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates Fla. Stat. § 501.204. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, consequential damages, attorney's fees under § 501.2105, and costs.",
+    "Relocation / medical": "Florida law provides cancellation rights upon permanent relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies.",
+    "Other": "Your violations of Fla. Stat. § 501.201 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, statutory penalties, attorney's fees, costs, and equitable relief."
+  },
+  "Georgia": {
+    "Unable to cancel online": "Under Georgia Code § 10-1-393 and § 10-1-399, your failure to honor cancellation constitutes unfair and deceptive practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, treble damages under § 10-1-399, attorney's fees, costs, and injunctive relief.",
+    "Being billed after cancellation": "Under O.C.G.A. § 10-1-393 and § 10-1-399, your improper billing after cancellation constitutes unfair and deceptive practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, treble damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates O.C.G.A. § 10-1-393. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, treble damages under § 10-1-399, attorney's fees, and costs.",
+    "Relocation / medical": "Georgia law mandates cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies including treble damages.",
+    "Other": "Your violations of O.C.G.A. § 10-1-390 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, treble damages under § 10-1-399, attorney's fees, costs, and equitable relief."
+  },
+  "Hawaii": {
+    "Unable to cancel online": "Under Hawaii Revised Statutes § 480-2 and § 480-13, your refusal to process cancellation constitutes unfair and deceptive practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, treble damages under § 480-13(b)(1), attorney's fees, costs, and injunctive relief.",
+    "Being billed after cancellation": "Under HRS § 480-2 and § 480-13, your continued billing after cancellation constitutes unfair and deceptive practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, treble damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates HRS § 480-2. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, treble damages under § 480-13(b)(1), attorney's fees, and costs.",
+    "Relocation / medical": "Hawaii law provides cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies including treble damages.",
+    "Other": "Your violations of HRS § 480-1 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, treble damages under § 480-13(b)(1), attorney's fees, costs, and equitable relief."
+  },
+  "Idaho": {
+    "Unable to cancel online": "Under Idaho Code § 48-603 and § 48-608, your failure to honor cancellation constitutes deceptive trade practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages, attorney's fees under § 48-608(4), costs, and injunctive relief.",
+    "Being billed after cancellation": "Under Idaho Code § 48-603 and § 48-608, your improper billing after cancellation constitutes deceptive trade practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates Idaho Code § 48-603. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, consequential damages, attorney's fees under § 48-608(4), and costs.",
+    "Relocation / medical": "Idaho law mandates cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies.",
+    "Other": "Your violations of Idaho Code § 48-601 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, statutory penalties, attorney's fees, costs, and equitable relief."
+  },
+  "Illinois": {
+    "Unable to cancel online": "Under Illinois Consumer Fraud and Deceptive Business Practices Act 815 ILCS 505/2 and 505/10a, your refusal to process cancellation constitutes unlawful deceptive practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages, attorney's fees under 505/10a(c), costs, and injunctive relief.",
+    "Being billed after cancellation": "Under 815 ILCS 505/2 and 505/10a, your continued billing after cancellation constitutes unlawful deceptive practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates 815 ILCS 505/2. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, consequential damages, attorney's fees under 505/10a(c), and costs.",
+    "Relocation / medical": "Illinois law provides cancellation rights upon permanent relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies.",
+    "Other": "Your violations of 815 ILCS 505/1 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, statutory penalties, attorney's fees, costs, and equitable relief."
+  },
+  "Indiana": {
+    "Unable to cancel online": "Under Indiana Code § 24-5-0.5-3 and § 24-5-0.5-4, your failure to honor cancellation constitutes deceptive consumer sales. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages, attorney's fees under § 24-5-0.5-4(b), costs, and injunctive relief.",
+    "Being billed after cancellation": "Under Ind. Code § 24-5-0.5-3 and § 24-5-0.5-4, your improper billing after cancellation constitutes deceptive consumer sales. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates Ind. Code § 24-5-0.5-3. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, consequential damages, attorney's fees under § 24-5-0.5-4(b), and costs.",
+    "Relocation / medical": "Indiana law mandates cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies.",
+    "Other": "Your violations of Ind. Code § 24-5-0.5-1 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, statutory penalties, attorney's fees, costs, and equitable relief."
+  },
+  "Iowa": {
+    "Unable to cancel online": "Under Iowa Code § 714.16 and § 714H.3, your refusal to process cancellation constitutes unlawful deceptive practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages, attorney's fees under § 714.16(7), costs, and injunctive relief.",
+    "Being billed after cancellation": "Under Iowa Code § 714.16 and § 714H.3, your continued billing after cancellation constitutes unlawful deceptive practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates Iowa Code § 714.16. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, consequential damages, attorney's fees under § 714.16(7), and costs.",
+    "Relocation / medical": "Iowa law provides cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies.",
+    "Other": "Your violations of Iowa Code § 714.16 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, statutory penalties, attorney's fees, costs, and equitable relief."
+  },
+  "Kansas": {
+    "Unable to cancel online": "Under Kansas Statutes § 50-623 and § 50-634, your failure to honor cancellation constitutes deceptive practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages, attorney's fees under § 50-634, costs, and injunctive relief.",
+    "Being billed after cancellation": "Under K.S.A. § 50-623 and § 50-634, your improper billing after cancellation constitutes deceptive practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates K.S.A. § 50-623. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, consequential damages, attorney's fees under § 50-634, and costs.",
+    "Relocation / medical": "Kansas law mandates cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies.",
+    "Other": "Your violations of K.S.A. § 50-623 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, statutory penalties, attorney's fees, costs, and equitable relief."
+  },
+  "Kentucky": {
+    "Unable to cancel online": "Under Kentucky Revised Statutes § 367.170 and § 367.220, your refusal to process cancellation constitutes unfair, false, misleading or deceptive acts. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages, attorney's fees under § 367.220(1), costs, and injunctive relief.",
+    "Being billed after cancellation": "Under KRS § 367.170 and § 367.220, your continued billing after cancellation constitutes unfair, false, misleading or deceptive acts. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates KRS § 367.170. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, consequential damages, attorney's fees under § 367.220(1), and costs.",
+    "Relocation / medical": "Kentucky law provides cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies.",
+    "Other": "Your violations of KRS § 367.110 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, statutory penalties, attorney's fees, costs, and equitable relief."
+  },
+  "Louisiana": {
+    "Unable to cancel online": "Under Louisiana Revised Statutes § 51:1405 and § 51:1409, your failure to honor cancellation constitutes unfair trade practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, treble damages under § 51:1409(A), attorney's fees, costs, and injunctive relief.",
+    "Being billed after cancellation": "Under La. R.S. § 51:1405 and § 51:1409, your improper billing after cancellation constitutes unfair trade practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, treble damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates La. R.S. § 51:1405. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, treble damages under § 51:1409(A), attorney's fees, and costs.",
+    "Relocation / medical": "Louisiana law mandates cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies including treble damages.",
+    "Other": "Your violations of La. R.S. § 51:1401 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, treble damages under § 51:1409(A), attorney's fees, costs, and equitable relief."
+  },
+  "Maine": {
+    "Unable to cancel online": "Under Maine Revised Statutes Title 5 § 207 and § 213, your refusal to process cancellation constitutes unfair trade practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages up to $10,000 under § 213, attorney's fees, costs, and injunctive relief.",
+    "Being billed after cancellation": "Under 5 M.R.S. § 207 and § 213, your continued billing after cancellation constitutes unfair trade practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages up to $10,000, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates 5 M.R.S. § 207. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, statutory damages, attorney's fees, and costs.",
+    "Relocation / medical": "Maine law provides cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies.",
+    "Other": "Your violations of 5 M.R.S. § 205-A et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, statutory damages up to $10,000 under § 213, attorney's fees, costs, and equitable relief."
+  },
+  "Maryland": {
+    "Unable to cancel online": "Under Maryland Commercial Law § 13-301 and § 13-408, your failure to honor cancellation constitutes unfair or deceptive trade practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, treble damages under § 13-408(b), attorney's fees, costs, and injunctive relief.",
+    "Being billed after cancellation": "Under Md. Code Com. Law § 13-301 and § 13-408, your improper billing after cancellation constitutes unfair or deceptive trade practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, treble damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates Md. Code Com. Law § 13-301. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, treble damages under § 13-408(b), attorney's fees, and costs.",
+    "Relocation / medical": "Maryland law mandates cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies including treble damages.",
+    "Other": "Your violations of Md. Code Com. Law § 13-101 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, treble damages under § 13-408(b), attorney's fees, costs, and equitable relief."
+  },
+  "Massachusetts": {
+    "Unable to cancel online": "Under Massachusetts General Laws Chapter 93A § 2 and § 9, your refusal to process cancellation constitutes unfair and deceptive acts or practices. This notice serves as formal demand pursuant to Chapter 93A § 9(3). Failure to comply within 30 days as required by statute will result in filing a civil lawsuit seeking actual damages, double or treble damages under § 9(3), attorney's fees, costs, and injunctive relief. I will file complaints with the Massachusetts Attorney General's Consumer Protection Division.",
+    "Being billed after cancellation": "Under M.G.L. c. 93A § 2 and § 9, your continued billing after cancellation constitutes unfair and deceptive acts or practices. This is formal demand under Chapter 93A § 9(3). Failure to comply within 30 days will result in filing a civil lawsuit seeking actual damages, double or treble damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates M.G.L. c. 93A § 2. This is formal demand under Chapter 93A § 9(3). Failure to cure within 30 days will result in civil litigation seeking compensatory damages, double or treble damages, attorney's fees, and costs.",
+    "Relocation / medical": "Massachusetts law provides cancellation rights upon relocation or medical necessity. Your denial is unlawful. This is formal demand under Chapter 93A § 9(3). Failure to comply within 30 days will result in civil litigation seeking all available remedies including double or treble damages.",
+    "Other": "Your violations of M.G.L. c. 93A are actionable. This is formal demand under § 9(3). Failure to comply within 30 days will result in filing a civil lawsuit seeking damages, double or treble damages, attorney's fees, costs, and equitable relief."
+  },
+  "Michigan": {
+    "Unable to cancel online": "Under Michigan Compiled Laws § 445.903 and § 445.911, your failure to honor cancellation constitutes unfair, unconscionable or deceptive methods. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages up to $250, attorney's fees under § 445.911(2), costs, and injunctive relief.",
+    "Being billed after cancellation": "Under MCL § 445.903 and § 445.911, your improper billing after cancellation constitutes unfair, unconscionable or deceptive methods. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates MCL § 445.903. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, statutory damages, attorney's fees under § 445.911(2), and costs.",
+    "Relocation / medical": "Michigan law mandates cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies.",
+    "Other": "Your violations of MCL § 445.901 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, statutory damages up to $250, attorney's fees, costs, and equitable relief."
+  },
+  "Minnesota": {
+    "Unable to cancel online": "Under Minnesota Statutes § 325F.69 and § 8.31, your refusal to process cancellation constitutes unlawful deceptive trade practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages, attorney's fees under § 8.31 Subd. 3a, costs, and injunctive relief.",
+    "Being billed after cancellation": "Under Minn. Stat. § 325F.69 and § 8.31, your continued billing after cancellation constitutes unlawful deceptive trade practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates Minn. Stat. § 325F.69. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, consequential damages, attorney's fees under § 8.31 Subd. 3a, and costs.",
+    "Relocation / medical": "Minnesota law provides cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies.",
+    "Other": "Your violations of Minn. Stat. § 325F.68 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, statutory penalties, attorney's fees, costs, and equitable relief."
+  },
+  "Mississippi": {
+    "Unable to cancel online": "Under Mississippi Code § 75-24-5 and § 75-24-15, your failure to honor cancellation constitutes unlawful trade practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages, attorney's fees under § 75-24-15(2), costs, and injunctive relief.",
+    "Being billed after cancellation": "Under Miss. Code § 75-24-5 and § 75-24-15, your improper billing after cancellation constitutes unlawful trade practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates Miss. Code § 75-24-5. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, consequential damages, attorney's fees under § 75-24-15(2), and costs.",
+    "Relocation / medical": "Mississippi law mandates cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies.",
+    "Other": "Your violations of Miss. Code § 75-24-1 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, statutory penalties, attorney's fees, costs, and equitable relief."
+  },
+  "Missouri": {
+    "Unable to cancel online": "Under Missouri Revised Statutes § 407.020 and § 407.025, your refusal to process cancellation constitutes unlawful merchandising practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, punitive damages, attorney's fees under § 407.025, costs, and injunctive relief.",
+    "Being billed after cancellation": "Under Mo. Rev. Stat. § 407.020 and § 407.025, your continued billing after cancellation constitutes unlawful merchandising practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, punitive damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates Mo. Rev. Stat. § 407.020. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, punitive damages, attorney's fees under § 407.025, and costs.",
+    "Relocation / medical": "Missouri law provides cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies including punitive damages.",
+    "Other": "Your violations of Mo. Rev. Stat. § 407.010 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, punitive damages, attorney's fees, costs, and equitable relief."
+  },
+  "Montana": {
+    "Unable to cancel online": "Under Montana Code Annotated § 30-14-103 and § 30-14-133, your failure to honor cancellation constitutes unfair trade practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, punitive damages, attorney's fees under § 30-14-133, costs, and injunctive relief.",
+    "Being billed after cancellation": "Under MCA § 30-14-103 and § 30-14-133, your improper billing after cancellation constitutes unfair trade practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, punitive damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates MCA § 30-14-103. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, punitive damages, attorney's fees under § 30-14-133, and costs.",
+    "Relocation / medical": "Montana law mandates cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies including punitive damages.",
+    "Other": "Your violations of MCA § 30-14-101 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, punitive damages, attorney's fees, costs, and equitable relief."
+  },
+  "Nebraska": {
+    "Unable to cancel online": "Under Nebraska Revised Statutes § 59-1602 and § 59-1609, your refusal to process cancellation constitutes deceptive trade practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages, attorney's fees under § 59-1609, costs, and injunctive relief.",
+    "Being billed after cancellation": "Under Neb. Rev. Stat. § 59-1602 and § 59-1609, your continued billing after cancellation constitutes deceptive trade practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates Neb. Rev. Stat. § 59-1602. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, consequential damages, attorney's fees under § 59-1609, and costs.",
+    "Relocation / medical": "Nebraska law provides cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies.",
+    "Other": "Your violations of Neb. Rev. Stat. § 59-1601 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, statutory penalties, attorney's fees, costs, and equitable relief."
+  },
+  "Nevada": {
+    "Unable to cancel online": "Under Nevada Revised Statutes § 598.0915 and § 41.600, your failure to honor cancellation constitutes deceptive trade practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages, attorney's fees under § 41.600, costs, and injunctive relief.",
+    "Being billed after cancellation": "Under NRS § 598.0915 and § 41.600, your improper billing after cancellation constitutes deceptive trade practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates NRS § 598.0915. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, consequential damages, attorney's fees under § 41.600, and costs.",
+    "Relocation / medical": "Nevada law mandates cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies.",
+    "Other": "Your violations of NRS § 598.0903 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, statutory penalties, attorney's fees, costs, and equitable relief."
+  },
+  "New Hampshire": {
+    "Unable to cancel online": "Under New Hampshire Revised Statutes § 358-A:2 and § 358-A:10, your refusal to process cancellation constitutes unfair or deceptive acts. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, treble damages under § 358-A:10(I), attorney's fees, costs, and injunctive relief.",
+    "Being billed after cancellation": "Under RSA § 358-A:2 and § 358-A:10, your continued billing after cancellation constitutes unfair or deceptive acts. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, treble damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates RSA § 358-A:2. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, treble damages under § 358-A:10(I), attorney's fees, and costs.",
+    "Relocation / medical": "New Hampshire law provides cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies including treble damages.",
+    "Other": "Your violations of RSA § 358-A:1 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, treble damages under § 358-A:10(I), attorney's fees, costs, and equitable relief."
+  },
+  "New Jersey": {
+    "Unable to cancel online": "Under New Jersey Statutes § 56:8-2 and § 56:8-19, your failure to honor cancellation constitutes unconscionable commercial practices and deceptive acts. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, treble damages under § 56:8-19, attorney's fees, costs, and injunctive relief.",
+    "Being billed after cancellation": "Under N.J.S.A. § 56:8-2 and § 56:8-19, your improper billing after cancellation constitutes unconscionable commercial practices and deceptive acts. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, treble damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates N.J.S.A. § 56:8-2. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, treble damages under § 56:8-19, attorney's fees, and costs.",
+    "Relocation / medical": "New Jersey law mandates cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies including treble damages.",
+    "Other": "Your violations of N.J.S.A. § 56:8-1 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, treble damages under § 56:8-19, attorney's fees, costs, and equitable relief."
+  },
+  "New Mexico": {
+    "Unable to cancel online": "Under New Mexico Statutes § 57-12-2 and § 57-12-10, your refusal to process cancellation constitutes unfair or deceptive trade practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, treble damages under § 57-12-10(B), attorney's fees, costs, and injunctive relief.",
+    "Being billed after cancellation": "Under NMSA § 57-12-2 and § 57-12-10, your continued billing after cancellation constitutes unfair or deceptive trade practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, treble damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates NMSA § 57-12-2. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, treble damages under § 57-12-10(B), attorney's fees, and costs.",
+    "Relocation / medical": "New Mexico law provides cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies including treble damages.",
+    "Other": "Your violations of NMSA § 57-12-1 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, treble damages under § 57-12-10(B), attorney's fees, costs, and equitable relief."
+  },
+  "New York": {
+    "Unable to cancel online": "Under New York General Business Law § 349 and § 350, your refusal to provide accessible cancellation methods constitutes deceptive acts and practices and false advertising. Failure to comply within 10 business days will result in filing a civil lawsuit in New York State Supreme Court seeking: (1) actual damages, (2) statutory damages up to $500, (3) treble damages where willful or knowing violation is found, (4) attorney's fees and costs, and (5) injunctive relief. I will file formal complaints with the New York Attorney General's Consumer Frauds and Protection Bureau and the New York State Department of State Division of Consumer Protection.",
+    "Being billed after cancellation": "Under New York General Business Law § 349 and § 350, your continued improper billing after written notice constitutes deceptive acts and practices and false advertising. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages up to $500, treble damages, attorney's fees and costs, and injunctive relief barring further charges.",
+    "Contract terms not honored": "Your failure to honor contract terms violates New York General Business Law § 349. Failure to cure within 10 business days will result in filing a civil lawsuit seeking compensatory damages, consequential damages, statutory damages, treble damages, attorney's fees and costs, and injunctive relief.",
+    "Relocation / medical": "Under New York law, I am entitled to cancel due to permanent relocation or qualifying medical condition. Your denial violates consumer protection statutes. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, statutory penalties, treble damages, attorney's fees, costs, and declaratory relief.",
+    "Other": "Your violations of New York General Business Law § 349 and § 350 are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking all available damages, statutory penalties up to $500, treble damages, attorney's fees, costs, and equitable relief."
+  },
+  "North Carolina": {
+    "Unable to cancel online": "Under North Carolina General Statutes § 75-1.1 and § 75-16, your failure to honor cancellation constitutes unfair or deceptive acts. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, treble damages under § 75-16, attorney's fees, costs, and injunctive relief.",
+    "Being billed after cancellation": "Under N.C.G.S. § 75-1.1 and § 75-16, your improper billing after cancellation constitutes unfair or deceptive acts. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, treble damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates N.C.G.S. § 75-1.1. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, treble damages under § 75-16, attorney's fees, and costs.",
+    "Relocation / medical": "North Carolina law mandates cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies including treble damages.",
+    "Other": "Your violations of N.C.G.S. § 75-1.1 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, treble damages under § 75-16, attorney's fees, costs, and equitable relief."
+  },
+  "North Dakota": {
+    "Unable to cancel online": "Under North Dakota Century Code § 51-15-02 and § 51-15-09, your refusal to process cancellation constitutes deceptive acts or practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, treble damages under § 51-15-09, attorney's fees, costs, and injunctive relief.",
+    "Being billed after cancellation": "Under NDCC § 51-15-02 and § 51-15-09, your continued billing after cancellation constitutes deceptive acts or practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, treble damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates NDCC § 51-15-02. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, treble damages under § 51-15-09, attorney's fees, and costs.",
+    "Relocation / medical": "North Dakota law provides cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies including treble damages.",
+    "Other": "Your violations of NDCC § 51-15-01 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, treble damages under § 51-15-09, attorney's fees, costs, and equitable relief."
+  },
+  "Ohio": {
+    "Unable to cancel online": "Under Ohio Revised Code § 1345.02 and § 1345.09, your failure to honor cancellation constitutes unfair or deceptive acts. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, treble damages under § 1345.09(B), attorney's fees, costs, and injunctive relief.",
+    "Being billed after cancellation": "Under ORC § 1345.02 and § 1345.09, your improper billing after cancellation constitutes unfair or deceptive acts. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, treble damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates ORC § 1345.02. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, treble damages under § 1345.09(B), attorney's fees, and costs.",
+    "Relocation / medical": "Ohio law mandates cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies including treble damages.",
+    "Other": "Your violations of ORC § 1345.01 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, treble damages under § 1345.09(B), attorney's fees, costs, and equitable relief."
+  },
+  "Oklahoma": {
+    "Unable to cancel online": "Under Oklahoma Statutes Title 15 § 753 and § 761.1, your refusal to process cancellation constitutes deceptive trade practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages, attorney's fees under § 761.1, costs, and injunctive relief.",
+    "Being billed after cancellation": "Under 15 O.S. § 753 and § 761.1, your continued billing after cancellation constitutes deceptive trade practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates 15 O.S. § 753. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, consequential damages, attorney's fees under § 761.1, and costs.",
+    "Relocation / medical": "Oklahoma law provides cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies.",
+    "Other": "Your violations of 15 O.S. § 751 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, statutory penalties, attorney's fees, costs, and equitable relief."
+  },
+  "Oregon": {
+    "Unable to cancel online": "Under Oregon Revised Statutes § 646.608 and § 646.638, your failure to honor cancellation constitutes unlawful trade practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages up to $1,000, punitive damages, attorney's fees under § 646.638(3), costs, and injunctive relief.",
+    "Being billed after cancellation": "Under ORS § 646.608 and § 646.638, your improper billing after cancellation constitutes unlawful trade practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages, punitive damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates ORS § 646.608. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, statutory damages up to $1,000, punitive damages, attorney's fees under § 646.638(3), and costs.",
+    "Relocation / medical": "Oregon law mandates cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies including statutory and punitive damages.",
+    "Other": "Your violations of ORS § 646.605 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, statutory damages up to $1,000, punitive damages, attorney's fees, costs, and equitable relief."
+  },
+  "Pennsylvania": {
+    "Unable to cancel online": "Under Pennsylvania Statutes Title 73 § 201-2 and § 201-9.2, your refusal to process cancellation constitutes unfair or deceptive acts. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, treble damages under § 201-9.2, attorney's fees, costs, and injunctive relief.",
+    "Being billed after cancellation": "Under 73 P.S. § 201-2 and § 201-9.2, your continued billing after cancellation constitutes unfair or deceptive acts. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, treble damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates 73 P.S. § 201-2. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, treble damages under § 201-9.2, attorney's fees, and costs.",
+    "Relocation / medical": "Pennsylvania law provides cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies including treble damages.",
+    "Other": "Your violations of 73 P.S. § 201-1 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, treble damages under § 201-9.2, attorney's fees, costs, and equitable relief."
+  },
+  "Rhode Island": {
+    "Unable to cancel online": "Under Rhode Island General Laws § 6-13.1-2 and § 6-13.1-5.2, your failure to honor cancellation constitutes unfair or deceptive acts. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, punitive damages up to $10,000, attorney's fees under § 6-13.1-5.2(b), costs, and injunctive relief.",
+    "Being billed after cancellation": "Under R.I. Gen. Laws § 6-13.1-2 and § 6-13.1-5.2, your improper billing after cancellation constitutes unfair or deceptive acts. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, punitive damages up to $10,000, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates R.I. Gen. Laws § 6-13.1-2. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, punitive damages up to $10,000, attorney's fees under § 6-13.1-5.2(b), and costs.",
+    "Relocation / medical": "Rhode Island law mandates cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies including punitive damages up to $10,000.",
+    "Other": "Your violations of R.I. Gen. Laws § 6-13.1-1 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, punitive damages up to $10,000, attorney's fees, costs, and equitable relief."
+  },
+  "South Carolina": {
+    "Unable to cancel online": "Under South Carolina Code § 39-5-20 and § 39-5-140, your refusal to process cancellation constitutes unfair or deceptive acts. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, treble damages under § 39-5-140(a), attorney's fees, costs, and injunctive relief.",
+    "Being billed after cancellation": "Under S.C. Code § 39-5-20 and § 39-5-140, your continued billing after cancellation constitutes unfair or deceptive acts. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, treble damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates S.C. Code § 39-5-20. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, treble damages under § 39-5-140(a), attorney's fees, and costs.",
+    "Relocation / medical": "South Carolina law provides cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies including treble damages.",
+    "Other": "Your violations of S.C. Code § 39-5-10 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, treble damages under § 39-5-140(a), attorney's fees, costs, and equitable relief."
+  },
+  "South Dakota": {
+    "Unable to cancel online": "Under South Dakota Codified Laws § 37-24-6 and § 37-24-31, your failure to honor cancellation constitutes deceptive acts. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages, attorney's fees under § 37-24-31, costs, and injunctive relief.",
+    "Being billed after cancellation": "Under SDCL § 37-24-6 and § 37-24-31, your improper billing after cancellation constitutes deceptive acts. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates SDCL § 37-24-6. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, consequential damages, attorney's fees under § 37-24-31, and costs.",
+    "Relocation / medical": "South Dakota law mandates cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies.",
+    "Other": "Your violations of SDCL § 37-24-1 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, statutory penalties, attorney's fees, costs, and equitable relief."
+  },
+  "Tennessee": {
+    "Unable to cancel online": "Under Tennessee Code § 47-18-104 and § 47-18-109, your refusal to process cancellation constitutes unfair or deceptive acts. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, treble damages under § 47-18-109(a)(3), attorney's fees, costs, and injunctive relief.",
+    "Being billed after cancellation": "Under Tenn. Code § 47-18-104 and § 47-18-109, your continued billing after cancellation constitutes unfair or deceptive acts. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, treble damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates Tenn. Code § 47-18-104. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, treble damages under § 47-18-109(a)(3), attorney's fees, and costs.",
+    "Relocation / medical": "Tennessee law provides cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies including treble damages.",
+    "Other": "Your violations of Tenn. Code § 47-18-101 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, treble damages under § 47-18-109(a)(3), attorney's fees, costs, and equitable relief."
+  },
+  "Texas": {
+    "Unable to cancel online": "Under Texas Business and Commerce Code § 17.46 and § 17.50, your failure to honor cancellation constitutes false, misleading or deceptive acts. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, additional damages up to three times actual damages under § 17.50(b)(1), attorney's fees, costs, and injunctive relief.",
+    "Being billed after cancellation": "Under Tex. Bus. & Com. Code § 17.46 and § 17.50, your improper billing after cancellation constitutes false, misleading or deceptive acts. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, additional damages up to three times actual damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates Tex. Bus. & Com. Code § 17.46. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, additional damages up to treble under § 17.50(b)(1), attorney's fees, and costs.",
+    "Relocation / medical": "Texas law mandates cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies including treble damages.",
+    "Other": "Your violations of Tex. Bus. & Com. Code § 17.41 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, additional damages up to three times actual damages under § 17.50(b)(1), attorney's fees, costs, and equitable relief."
+  },
+  "Utah": {
+    "Unable to cancel online": "Under Utah Code § 13-11-4 and § 13-11-19, your refusal to process cancellation constitutes deceptive acts. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages, attorney's fees under § 13-11-19(3), costs, and injunctive relief.",
+    "Being billed after cancellation": "Under Utah Code § 13-11-4 and § 13-11-19, your continued billing after cancellation constitutes deceptive acts. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates Utah Code § 13-11-4. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, consequential damages, attorney's fees under § 13-11-19(3), and costs.",
+    "Relocation / medical": "Utah law provides cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies.",
+    "Other": "Your violations of Utah Code § 13-11-1 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, statutory penalties, attorney's fees, costs, and equitable relief."
+  },
+  "Vermont": {
+    "Unable to cancel online": "Under Vermont Statutes Title 9 § 2453 and § 2461, your failure to honor cancellation constitutes unfair or deceptive acts. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, exemplary damages up to three times actual damages under § 2461(b), attorney's fees, costs, and injunctive relief.",
+    "Being billed after cancellation": "Under 9 V.S.A. § 2453 and § 2461, your improper billing after cancellation constitutes unfair or deceptive acts. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, exemplary damages up to three times actual damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates 9 V.S.A. § 2453. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, exemplary damages up to three times actual damages under § 2461(b), attorney's fees, and costs.",
+    "Relocation / medical": "Vermont law mandates cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies including exemplary damages.",
+    "Other": "Your violations of 9 V.S.A. § 2451 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, exemplary damages up to three times actual damages under § 2461(b), attorney's fees, costs, and equitable relief."
+  },
+  "Virginia": {
+    "Unable to cancel online": "Under Virginia Code § 59.1-200 and § 59.1-204, your refusal to process cancellation constitutes prohibited practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages, attorney's fees under § 59.1-204(A), costs, and injunctive relief.",
+    "Being billed after cancellation": "Under Va. Code § 59.1-200 and § 59.1-204, your continued billing after cancellation constitutes prohibited practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates Va. Code § 59.1-200. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, consequential damages, attorney's fees under § 59.1-204(A), and costs.",
+    "Relocation / medical": "Virginia law provides cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies.",
+    "Other": "Your violations of Va. Code § 59.1-196 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, statutory penalties, attorney's fees, costs, and equitable relief."
+  },
+  "Washington": {
+    "Unable to cancel online": "Under Washington Revised Code § 19.86.020 and § 19.86.090, your failure to honor cancellation constitutes unfair or deceptive acts. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, treble damages under § 19.86.090, attorney's fees, costs, and injunctive relief.",
+    "Being billed after cancellation": "Under RCW § 19.86.020 and § 19.86.090, your improper billing after cancellation constitutes unfair or deceptive acts. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, treble damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates RCW § 19.86.020. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, treble damages under § 19.86.090, attorney's fees, and costs.",
+    "Relocation / medical": "Washington law mandates cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies including treble damages.",
+    "Other": "Your violations of RCW § 19.86.010 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, treble damages under § 19.86.090, attorney's fees, costs, and equitable relief."
+  },
+  "West Virginia": {
+    "Unable to cancel online": "Under West Virginia Code § 46A-6-102 and § 46A-6-106, your refusal to process cancellation constitutes unfair or deceptive acts. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages, attorney's fees under § 46A-6-106, costs, and injunctive relief.",
+    "Being billed after cancellation": "Under W. Va. Code § 46A-6-102 and § 46A-6-106, your continued billing after cancellation constitutes unfair or deceptive acts. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates W. Va. Code § 46A-6-102. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, consequential damages, attorney's fees under § 46A-6-106, and costs.",
+    "Relocation / medical": "West Virginia law provides cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies.",
+    "Other": "Your violations of W. Va. Code § 46A-6-101 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, statutory penalties, attorney's fees, costs, and equitable relief."
+  },
+  "Wisconsin": {
+    "Unable to cancel online": "Under Wisconsin Statutes § 100.18 and § 100.20, your failure to honor cancellation constitutes methods, acts or practices of public utility or other business which are unfair. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, double damages under § 100.20(5), attorney's fees, costs, and injunctive relief.",
+    "Being billed after cancellation": "Under Wis. Stat. § 100.18 and § 100.20, your improper billing after cancellation constitutes methods, acts or practices which are unfair. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, double damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates Wis. Stat. § 100.18. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, double damages under § 100.20(5), attorney's fees, and costs.",
+    "Relocation / medical": "Wisconsin law mandates cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies including double damages.",
+    "Other": "Your violations of Wis. Stat. § 100.18 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, double damages under § 100.20(5), attorney's fees, costs, and equitable relief."
+  },
+  "Wyoming": {
+    "Unable to cancel online": "Under Wyoming Statutes § 40-12-105 and § 40-12-108, your refusal to process cancellation constitutes deceptive trade practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages, attorney's fees under § 40-12-108(b), costs, and injunctive relief.",
+    "Being billed after cancellation": "Under Wyo. Stat. § 40-12-105 and § 40-12-108, your continued billing after cancellation constitutes deceptive trade practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, statutory damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates Wyo. Stat. § 40-12-105. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, consequential damages, attorney's fees under § 40-12-108(b), and costs.",
+    "Relocation / medical": "Wyoming law provides cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies.",
+    "Other": "Your violations of Wyo. Stat. § 40-12-101 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, statutory penalties, attorney's fees, costs, and equitable relief."
+  },
+  "District of Columbia": {
+    "Unable to cancel online": "Under D.C. Code § 28-3904 and § 28-3905, your failure to honor cancellation constitutes unlawful trade practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, treble damages under § 28-3905(k)(1), attorney's fees, costs, and injunctive relief.",
+    "Being billed after cancellation": "Under D.C. Code § 28-3904 and § 28-3905, your improper billing after cancellation constitutes unlawful trade practices. Failure to comply within 10 business days will result in filing a civil lawsuit seeking actual damages, treble damages, attorney's fees, costs, and injunctive relief.",
+    "Contract terms not honored": "Your breach violates D.C. Code § 28-3904. I demand immediate compliance. Failure to cure within 10 business days will result in civil litigation seeking compensatory damages, treble damages under § 28-3905(k)(1), attorney's fees, and costs.",
+    "Relocation / medical": "District of Columbia law mandates cancellation rights upon relocation or medical necessity. Your denial is unlawful. Failure to comply within 10 business days will result in civil litigation seeking all available remedies including treble damages.",
+    "Other": "Your violations of D.C. Code § 28-3901 et seq. are actionable. Failure to comply within 10 business days will result in filing a civil lawsuit seeking damages, treble damages under § 28-3905(k)(1), attorney's fees, costs, and equitable relief."
+  }
+};
+
+// Generate default legal text for states without detailed templates
+function getDefaultLegalText(stateName) {
+    const abbrev = getStateAbbreviation(stateName);
+    const info = LEGAL_INFO[abbrev];
+    return `Under ${stateName} law, I am exercising my right to cancel this health club services contract. ${info || ''} I request immediate processing of this cancellation and cessation of all future billing.`;
+}
+
+// ========================================
+// 📊 DATA CONSTANTS
+// ========================================
+
+const US_STATES = [
+  "Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", "Connecticut", 
+  "Delaware", "District of Columbia", "Florida", "Georgia", "Hawaii", "Idaho", "Illinois", 
+  "Indiana", "Iowa", "Kansas", "Kentucky", "Louisiana", "Maine", "Maryland", "Massachusetts", 
+  "Michigan", "Minnesota", "Mississippi", "Missouri", "Montana", "Nebraska", "Nevada", 
+  "New Hampshire", "New Jersey", "New Mexico", "New York", "North Carolina", "North Dakota", 
+  "Ohio", "Oklahoma", "Oregon", "Pennsylvania", "Rhode Island", "South Carolina", "South Dakota", 
+  "Tennessee", "Texas", "Utah", "Vermont", "Virginia", "Washington", "West Virginia", 
+  "Wisconsin", "Wyoming"
+];
+
+const CANCELLATION_REASONS = [
+  "Unable to cancel online",
+  "Being billed after cancellation attempt",
+  "Contract terms not honored",
+  "Relocation / medical",
+  "Other"
+];
+
+const REASON_MAP = {
+  "Being billed after cancellation attempt": "Being billed after cancellation",
+  "Unable to cancel online": "Unable to cancel online",
+  "Contract terms not honored": "Contract terms not honored",
+  "Relocation / medical": "Relocation / medical",
+  "Other": "Other"
+};
+
+const Step = {
+  Landing: 0,
+  Intake: 1,
+  Details: 2,
+  Verification: 3,
+  Preview: 4,
+  Signature: 5,
+  Payment: 6,
+  Delivery: 7
+};
+
+// ========================================
+// 🎨 ICONS
+// ========================================
+
+const ChevronLeft = ({ size = 18 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <polyline points="15 18 9 12 15 6"></polyline>
+  </svg>
+);
+
+const RotateCcw = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <polyline points="1 4 1 10 7 10"></polyline>
+    <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+  </svg>
+);
+
+const MapPin = ({ size = 14 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+    <circle cx="12" cy="10" r="3"></circle>
+  </svg>
+);
+
+const Check = ({ size = 12 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <polyline points="20 6 9 17 4 12"></polyline>
+  </svg>
+);
+
+const CheckCircle = ({ size = 48 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+    <polyline points="22 4 12 14.01 9 11.01"></polyline>
+  </svg>
+);
+
+const ShoppingCart = ({ size = 18 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <circle cx="9" cy="21" r="1"></circle>
+    <circle cx="20" cy="21" r="1"></circle>
+    <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path>
+  </svg>
+);
+
+const FileText = ({ size = 48 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+    <polyline points="14 2 14 8 20 8"></polyline>
+    <line x1="16" y1="13" x2="8" y2="13"></line>
+    <line x1="16" y1="17" x2="8" y2="17"></line>
+    <polyline points="10 9 9 9 8 9"></polyline>
+  </svg>
+);
+
+// ========================================
+// 🎯 PROGRESS BAR
+// ========================================
+
+const ProgressBar = ({ currentStep, totalSteps }) => {
+  const progress = ((currentStep - 1) / (totalSteps - 1)) * 100;
+  return (
+    <div className="w-full h-1 bg-white/10 rounded-full overflow-hidden">
+      <div 
+        className="h-full bg-gradient-to-r from-cyan-400 to-blue-500 transition-all duration-500 ease-out shimmer"
+        style={{ width: `${Math.max(0, Math.min(100, progress))}%` }}
+      />
+    </div>
+  );
+};
+
+// ========================================
+// 📱 SCREEN 1: LANDING
+// ========================================
+
+const LandingScreen = ({ onStart, onBuyLicense }) => (
+  <div className="flex flex-col items-center justify-center min-h-[80vh] text-center px-4">
+    <div className="animate-in space-y-6">
+      <h1 className="text-6xl md:text-8xl font-bold tracking-tight bg-gradient-to-r from-cyan-400 via-blue-500 to-purple-600 bg-clip-text text-transparent leading-tight">
+        GOTCHA BRO
+      </h1>
+      <p className="text-2xl md:text-3xl font-light text-white/80 max-w-2xl mx-auto">
+        Stuck in a gym contract? <span className="font-semibold text-cyan-400">Gotcha, bro.</span>
+      </p>
+      
+      <div className="pt-8 space-y-4">
+        <button
+          onClick={onStart}
+          className="px-12 py-5 bg-gradient-to-r from-cyan-500 to-blue-600 text-white text-xl font-bold rounded-2xl hover:shadow-2xl hover:shadow-cyan-500/50 transition-all duration-300 active:scale-95 glow w-full md:w-auto"
+        >
+          Cancel Now - $5.99
+        </button>
+
+        <div className="text-center">
+          <button
+            onClick={onBuyLicense}
+            className="px-10 py-4 glass text-white/90 text-lg font-semibold rounded-2xl hover:bg-white/10 transition-all duration-300 flex items-center gap-3 mx-auto"
+          >
+            <ShoppingCart size={20} />
+            Buy This Widget - $197
+          </button>
+        </div>
+      </div>
+
+      <div className="pt-16 grid grid-cols-1 md:grid-cols-3 gap-6 max-w-3xl mx-auto">
+        {[
+          { step: "1", title: "Fill Details", desc: "Your info & gym details" },
+          { step: "2", title: "Generate Letter", desc: "Legal cancellation docs" },
+          { step: "3", title: "Get Freedom", desc: "Download & send" }
+        ].map((item, i) => (
+          <div key={i} className="glass rounded-2xl p-6 space-y-2 text-left hover:bg-white/5 transition-all">
+            <div className="text-cyan-400 font-bold text-sm">STEP {item.step}</div>
+            <div className="font-semibold text-white text-lg">{item.title}</div>
+            <div className="text-white/60 text-sm">{item.desc}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="pt-12 text-white/40 text-xs max-w-2xl mx-auto">
+        <strong className="text-white/60">DISCLAIMER:</strong> This is a document automation tool, not legal advice. 
+        All content is user-authored. Statutory references are informational only. 
+        Users are responsible for compliance with applicable laws in their jurisdiction.
+      </div>
+    </div>
+  </div>
+);
+
+// ========================================
+// 📱 SCREEN 2: INTAKE (GYM INFO)
+// ========================================
+
+const IntakeScreen = ({ data, onUpdate, onNext }) => {
+  const [addressSuggestions, setAddressSuggestions] = useState([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const addressTimeoutRef = useRef(null);
+
+  const searchAddress = async (query) => {
+    if (query.length < 5) {
+      setAddressSuggestions([]);
+      setIsSearching(false);
+      return;
+    }
+
+    setIsSearching(true);
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&countrycodes=us&limit=5&addressdetails=1`
+      );
+      const results = await response.json();
+      setAddressSuggestions(results);
+      setShowSuggestions(true);
+    } catch (error) {
+      console.error('Address search error:', error);
+    }
+    setIsSearching(false);
+  };
+
+  const handleAddressChange = (value) => {
+    onUpdate({ gymAddress: value });
+    
+    if (addressTimeoutRef.current) clearTimeout(addressTimeoutRef.current);
+    addressTimeoutRef.current = setTimeout(() => {
+      searchAddress(value);
+    }, 500);
+  };
+
+  const selectAddress = (result) => {
+    onUpdate({ gymAddress: result.display_name });
+    setShowSuggestions(false);
+    setAddressSuggestions([]);
+  };
+
+  const isFormValid = 
+    data.fullName?.trim() !== '' && 
+    data.memberAddress?.trim() !== '' &&
+    data.gymName?.trim() !== '' && 
+    data.state !== '' && 
+    data.gymAddress?.trim() !== '' &&
+    data.agreedToLaw === true;
+
+  return (
+    <div className="animate-in max-w-2xl mx-auto">
+      <h2 className="text-4xl md:text-5xl font-bold mb-3 bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
+        Your Information
+      </h2>
+      <p className="text-white/60 mb-8 text-lg">Fill in your details to get started.</p>
+
+      <div className="glass rounded-3xl p-8 space-y-6">
+        <div>
+          <label className="block text-sm font-semibold mb-2 text-white/80">Full Legal Name *</label>
+          <input
+            type="text"
+            placeholder="As it appears on your contract"
+            className="w-full px-5 py-4 bg-white/5 border border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-all text-white placeholder-white/30"
+            value={data.fullName || ''}
+            onChange={(e) => onUpdate({ fullName: e.target.value })}
+            autoComplete="name"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-semibold mb-2 text-white/80">Your Home Address *</label>
+          <input
+            type="text"
+            placeholder="Street, City, State, ZIP"
+            className="w-full px-5 py-4 bg-white/5 border border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-all text-white placeholder-white/30"
+            value={data.memberAddress || ''}
+            onChange={(e) => onUpdate({ memberAddress: e.target.value })}
+            autoComplete="street-address"
+          />
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-semibold mb-2 text-white/80">Gym Name *</label>
+            <input
+              type="text"
+              placeholder="e.g., Planet Fitness"
+              className="w-full px-5 py-4 bg-white/5 border border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-all text-white placeholder-white/30"
+              value={data.gymName || ''}
+              onChange={(e) => onUpdate({ gymName: e.target.value })}
+              autoComplete="organization"
+            />
+          </div>
+          <div>
+            <label className="text-sm font-semibold mb-2 block text-white/80">State *</label>
+            <select
+              className="w-full px-5 py-4 bg-white/5 border border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-all appearance-none cursor-pointer text-white"
+              value={data.state || ''}
+              onChange={(e) => onUpdate({ state: e.target.value })}
+            >
+              <option value="" className="bg-gray-900">Select State</option>
+              {US_STATES.map((s) => (
+                <option key={s} value={s} className="bg-gray-900">{s}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="relative">
+          <div className="flex justify-between items-center mb-2">
+            <label className="text-sm font-semibold flex items-center gap-2 text-white/80">
+              <MapPin size={14} />
+              Gym Official Mailing Address *
+            </label>
+            {data.gymAddress && (
+              <span className="text-xs font-bold text-cyan-400 flex items-center gap-1">
+                <Check size={12} /> Verified
+              </span>
+            )}
+          </div>
+          <textarea
+            placeholder="Start typing the gym's address..."
+            rows={2}
+            className="w-full px-5 py-4 bg-white/5 border border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-all resize-none text-white placeholder-white/30"
+            value={data.gymAddress || ''}
+            onChange={(e) => handleAddressChange(e.target.value)}
+            onFocus={() => addressSuggestions.length > 0 && setShowSuggestions(true)}
+          />
+          
+          {isSearching && (
+            <div className="absolute top-full left-0 right-0 mt-2 glass rounded-xl p-4 text-center text-white/60">
+              Searching addresses...
+            </div>
+          )}
+
+          {showSuggestions && addressSuggestions.length > 0 && !isSearching && (
+            <div className="absolute top-full left-0 right-0 mt-2 glass rounded-xl shadow-2xl z-50 max-h-60 overflow-y-auto border border-cyan-500/30">
+              {addressSuggestions.map((result, idx) => (
+                <div
+                  key={idx}
+                  onClick={() => selectAddress(result)}
+                  className="px-5 py-3 hover:bg-cyan-500/20 cursor-pointer border-b border-white/5 last:border-0 transition-all"
+                >
+                  <div className="text-sm font-medium text-white">{result.display_name}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <label className="block text-sm font-semibold mb-2 text-white/80">Account Number (Optional)</label>
+          <input
+            type="text"
+            placeholder="Membership ID if you have it"
+            className="w-full px-5 py-4 bg-white/5 border border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-all text-white placeholder-white/30"
+            value={data.accountNumber || ''}
+            onChange={(e) => onUpdate({ accountNumber: e.target.value })}
+          />
+        </div>
+
+
+        <div>
+          <label className="block text-sm font-semibold mb-2 text-white/80">Membership Card or ID *</label>
+          <input
+            type="file"
+            accept="image/*,.pdf"
+            className="w-full px-5 py-4 bg-white/5 border border-white/10 rounded-xl text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-cyan-600 file:text-white hover:file:bg-cyan-700"
+            onChange={(e) => {
+              const f = e.target.files[0];
+              if (f && f.size <= 5242880) {
+                const r = new FileReader();
+                r.onload = (ev) => onUpdate({membershipIdFile: ev.target.result, membershipIdFileName: f.name});
+                r.readAsDataURL(f);
+              }
+            }}
+          />
+        </div>
+
+        <label className="flex items-start gap-3 cursor-pointer group pt-4">
+          <input
+            type="checkbox"
+            className="mt-1 h-5 w-5 rounded border-white/20 text-cyan-500 focus:ring-cyan-500 accent-cyan-500"
+            checked={data.agreedToLaw || false}
+            onChange={(e) => onUpdate({ agreedToLaw: e.target.checked })}
+          />
+          <span className="text-sm text-white/60 leading-tight group-hover:text-white/80 transition-colors">
+            I understand this document will be generated based on health club statutes for the selected state.
+          </span>
+        </label>
+      </div>
+
+      <button
+        onClick={onNext}
+        disabled={!isFormValid}
+        className="w-full mt-8 py-5 bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-bold rounded-2xl hover:shadow-2xl hover:shadow-cyan-500/50 disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-300 text-lg"
+      >
+        Continue →
+      </button>
+    </div>
+  );
+};
+
+// ========================================
+// 📱 SCREEN 3: DETAILS
+// ========================================
+
+const DetailsScreen = ({ data, onUpdate, onNext }) => {
+  const toggleReason = (reason) => {
+    const newReasons = (data.reasons || []).includes(reason)
+      ? data.reasons.filter(r => r !== reason)
+      : [...(data.reasons || []), reason];
+    onUpdate({ reasons: newReasons });
+  };
+
+  const isFormValid = data.signupMethod !== '' && (data.reasons || []).length > 0;
+
+  const handleNext = () => {
+    if (!isFormValid) return;
+
+    const legalParagraphs = [];
+    const stateData = LEGAL_DATABASE[data.state];
+    
+    (data.reasons || []).forEach(reason => {
+      const mappedReason = REASON_MAP[reason] || reason;
+      
+      if (stateData && stateData[mappedReason]) {
+        legalParagraphs.push(stateData[mappedReason]);
+      }
+    });
+
+    const combinedLegalText = legalParagraphs.length > 0 
+      ? legalParagraphs.join('\n\n')
+      : getDefaultLegalText(data.state);
+    
+    onUpdate({ legalText: combinedLegalText });
+    onNext();
+  };
+
+  return (
+    <div className="animate-in max-w-2xl mx-auto">
+      <h2 className="text-4xl md:text-5xl font-bold mb-3 bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
+        Cancellation Details
+      </h2>
+      <p className="text-white/60 mb-8 text-lg">Tell us about your situation.</p>
+
+      <div className="space-y-8">
+        <div className="glass rounded-3xl p-8">
+          <label className="block text-sm font-semibold mb-3 text-white/80">When did you sign up?</label>
+          <input
+            type="date"
+            className="w-full px-5 py-4 bg-white/5 border border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-all text-white"
+            value={data.membershipStartDate || ''}
+            onChange={(e) => onUpdate({ membershipStartDate: e.target.value })}
+          />
+        </div>
+
+        <div className="glass rounded-3xl p-8">
+          <label className="block text-sm font-semibold mb-4 text-white/80">How did you sign up? *</label>
+          <div className="space-y-3">
+            {['In person at gym', 'Online', 'Phone call', 'Third-party app'].map((method) => (
+              <label key={method} className="flex items-center gap-3 cursor-pointer group p-4 rounded-xl hover:bg-white/5 transition-all">
+                <input
+                  type="radio"
+                  name="signupMethod"
+                  className="h-5 w-5 text-cyan-500 focus:ring-cyan-500 accent-cyan-500"
+                  checked={data.signupMethod === method}
+                  onChange={() => onUpdate({ signupMethod: method })}
+                />
+                <span className="text-white/80 group-hover:text-white transition-colors">{method}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div className="glass rounded-3xl p-8">
+          <label className="block text-sm font-semibold mb-4 text-white/80">Why are you canceling? * (Select all that apply)</label>
+          <div className="space-y-3">
+            {CANCELLATION_REASONS.map((reason) => (
+              <label key={reason} className="flex items-start gap-3 cursor-pointer group p-4 rounded-xl hover:bg-white/5 transition-all">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-5 w-5 rounded text-cyan-500 focus:ring-cyan-500 accent-cyan-500"
+                  checked={(data.reasons || []).includes(reason)}
+                  onChange={() => toggleReason(reason)}
+                />
+                <span className="text-white/80 group-hover:text-white transition-colors leading-tight">{reason}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <button
+        onClick={handleNext}
+        disabled={!isFormValid}
+        className="w-full mt-8 py-5 bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-bold rounded-2xl hover:shadow-2xl hover:shadow-cyan-500/50 disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-300 text-lg"
+      >
+        Continue →
+      </button>
+    </div>
+  );
+};
+
+// ========================================
+// 📱 SCREEN 4: VERIFICATION
+// ========================================
+
+const VerificationScreen = ({ data, onUpdate, onNext }) => {
+  const stateAbbrev = getStateAbbreviation(data.state);
+  const legalInfo = LEGAL_INFO[stateAbbrev];
+
+  return (
+    <div className="animate-in max-w-2xl mx-auto">
+      <h2 className="text-4xl md:text-5xl font-bold mb-3 bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
+        Your Legal Rights
+      </h2>
+      <p className="text-white/60 mb-8 text-lg">State-specific consumer protections in {data.state}.</p>
+
+      <div className="glass rounded-3xl p-8 mb-6">
+        <div className="flex items-start gap-4 mb-6">
+          <div className="w-12 h-12 rounded-full bg-cyan-500/20 flex items-center justify-center flex-shrink-0">
+            <CheckCircle size={24} className="text-cyan-400" />
+          </div>
+          <div>
+            <h3 className="text-xl font-bold text-white mb-2">{data.state} Consumer Protection</h3>
+            <p className="text-white/70 leading-relaxed">
+              {legalInfo || `${data.state} law requires health clubs to accept written cancellation notices.`}
+            </p>
+          </div>
+        </div>
+
+        <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-2xl p-6">
+          <div className="text-sm font-bold text-cyan-400 mb-2">IMPORTANT NOTICE</div>
+          <p className="text-white/80 text-sm leading-relaxed">
+            This letter references {data.state} consumer protection statutes. While we provide this framework based on state law, 
+            this is an automation tool and not legal advice. You are responsible for ensuring compliance with all applicable laws.
+          </p>
+        </div>
+      </div>
+
+      <button
+        onClick={onNext}
+        className="w-full py-5 bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-bold rounded-2xl hover:shadow-2xl hover:shadow-cyan-500/50 transition-all duration-300 text-lg"
+      >
+        Continue →
+      </button>
+    </div>
+  );
+};
+
+// ========================================
+// 📱 SCREEN 5: PREVIEW
+// ========================================
+
+const PreviewScreen = ({ data, onNext }) => {
+  const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+  return (
+    <div className="animate-in max-w-3xl mx-auto">
+      <h2 className="text-4xl md:text-5xl font-bold mb-3 bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
+        Document Preview
+      </h2>
+      <p className="text-white/60 mb-8 text-lg">Review your cancellation letter before signing.</p>
+
+      <div className="bg-white rounded-3xl p-12 shadow-2xl space-y-6 max-h-[600px] overflow-y-auto text-gray-900">
+        <div className="text-right space-y-1 text-sm">
+          <div className="font-semibold">{data.fullName}</div>
+          <div>{data.memberAddress}</div>
+          <div className="pt-4">{today}</div>
+        </div>
+
+        <div className="space-y-1 text-sm">
+          <div className="font-semibold">{data.gymName}</div>
+          <div>{data.gymAddress}</div>
+        </div>
+
+        <div className="font-semibold">
+          RE: Cancellation of Gym Membership {data.accountNumber && `(Account #${data.accountNumber})`}
+        </div>
+
+        <div className="space-y-4 leading-relaxed">
+          <p>Dear {data.gymName} Management,</p>
+          
+          <p>I am writing to formally cancel my gym membership at {data.gymName}, effective immediately. This letter serves as my official written notice of cancellation in accordance with {data.state} law.</p>
+          
+          {data.legalText && <p className="whitespace-pre-wrap">{data.legalText}</p>}
+          
+          <p>Please confirm receipt of this cancellation letter and process my membership cancellation immediately. Please cease all future billing to my account.</p>
+          
+          <p>Thank you for your prompt attention to this matter.</p>
+          
+          <div className="pt-8">
+            <p>Sincerely,</p>
+            <p className="pt-8 font-semibold">{data.fullName}</p>
+          </div>
+        </div>
+      </div>
+
+      <button
+        onClick={onNext}
+        className="w-full mt-8 py-5 bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-bold rounded-2xl hover:shadow-2xl hover:shadow-cyan-500/50 transition-all duration-300 text-lg"
+      >
+        Looks Good →
+      </button>
+    </div>
+  );
+};
+
+// ========================================
+// 📱 SCREEN 6: SIGNATURE
+// ========================================
+
+const SignatureScreen = ({ data, onUpdate, onNext }) => {
+  const canvasRef = useRef(null);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [hasSignature, setHasSignature] = useState(false);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+  }, []);
+
+  const getCoordinates = (e) => {
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    
+    const clientX = e.clientX || e.touches?.[0]?.clientX || 0;
+    const clientY = e.clientY || e.touches?.[0]?.clientY || 0;
+    
+    return {
+      x: (clientX - rect.left) * scaleX,
+      y: (clientY - rect.top) * scaleY
+    };
+  };
+
+  const startDrawing = (e) => {
+    e.preventDefault();
+    setIsDrawing(true);
+    setHasSignature(true);
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    const coords = getCoordinates(e);
+    
+    ctx.beginPath();
+    ctx.moveTo(coords.x, coords.y);
+  };
+
+  const draw = (e) => {
+    e.preventDefault();
+    if (!isDrawing) return;
+    
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    const coords = getCoordinates(e);
+    
+    ctx.lineTo(coords.x, coords.y);
+    ctx.stroke();
+  };
+
+  const stopDrawing = (e) => {
+    e.preventDefault();
+    if (isDrawing) {
+      setIsDrawing(false);
+      const canvas = canvasRef.current;
+      const signatureData = canvas.toDataURL();
+      onUpdate({ signatureData });
+    }
+  };
+
+  const clearSignature = () => {
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    setHasSignature(false);
+    onUpdate({ signatureData: '' });
+  };
+
+  const handleNext = () => {
+    if (!hasSignature) {
+      alert('Please provide your signature before continuing.');
+      return;
+    }
+    onNext();
+  };
+
+  return (
+    <div className="animate-in max-w-2xl mx-auto">
+      <h2 className="text-4xl md:text-5xl font-bold mb-3 bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
+        Sign Your Letter
+      </h2>
+      <p className="text-white/60 mb-8 text-lg">Your signature makes it official.</p>
+
+      <div className="glass rounded-3xl p-8">
+        <label className="block text-sm font-semibold mb-4 text-white/80">Draw your signature below</label>
+        
+        <div className="relative bg-gray-900 border-2 border-dashed border-cyan-500/50 rounded-2xl p-4 mb-4">
+          <canvas
+            ref={canvasRef}
+            width={800}
+            height={300}
+            className="w-full h-48 cursor-crosshair signature-canvas rounded-xl"
+            onMouseDown={startDrawing}
+            onMouseMove={draw}
+            onMouseUp={stopDrawing}
+            onMouseLeave={stopDrawing}
+            onTouchStart={startDrawing}
+            onTouchMove={draw}
+            onTouchEnd={stopDrawing}
+          />
+          {!hasSignature && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="text-white/30 text-center">
+                <div className="text-lg font-semibold mb-1">Sign Here</div>
+                <div className="text-sm">Use your mouse or finger</div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <button
+          onClick={clearSignature}
+          className="px-6 py-3 bg-white/5 border border-white/10 text-white/80 rounded-xl hover:bg-white/10 transition-all font-medium"
+        >
+          <RotateCcw size={16} className="inline mr-2" />
+          Clear Signature
+        </button>
+      </div>
+
+      <button
+        onClick={handleNext}
+        disabled={!hasSignature}
+        className="w-full mt-8 py-5 bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-bold rounded-2xl hover:shadow-2xl hover:shadow-cyan-500/50 disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-300 text-lg"
+      >
+        Continue to Payment →
+      </button>
+    </div>
+  );
+};
+
+// ========================================
+// 📱 SCREEN 7: PAYMENT
+// ========================================
+
+const PaymentScreen = ({ data }) => {
+  const handlePayment = () => {
+    // Save form data to localStorage for retrieval after payment
+    localStorage.setItem('gotchaBroFormData', JSON.stringify(data));
+    
+    // Redirect to Stripe
+    window.location.href = CONFIG.USER_STRIPE_LINK + '?client_reference_id=gotcha-bro';
+  };
+
+  return (
+    <div className="animate-in max-w-2xl mx-auto">
+      <h2 className="text-4xl md:text-5xl font-bold mb-3 bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
+        Complete Purchase
+      </h2>
+      <p className="text-white/60 mb-8 text-lg">Secure payment via Stripe.</p>
+
+      <div className="glass rounded-3xl p-10 mb-6">
+        <div className="text-center mb-8">
+          <div className="text-6xl font-bold text-transparent bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text mb-2">
+            $5.99
+          </div>
+          <div className="text-white/60">One-time payment</div>
+        </div>
+
+        <div className="space-y-4 mb-8">
+          <div className="flex items-center gap-4 p-4 bg-white/5 rounded-xl">
+            <CheckCircle size={24} className="text-cyan-400 flex-shrink-0" />
+            <div className="text-white/90">
+              <div className="font-semibold">Professional Cancellation Letter</div>
+              <div className="text-sm text-white/60">State-specific legal language</div>
+            </div>
+          </div>
+          <div className="flex items-center gap-4 p-4 bg-white/5 rounded-xl">
+            <CheckCircle size={24} className="text-cyan-400 flex-shrink-0" />
+            <div className="text-white/90">
+              <div className="font-semibold">Instant Download</div>
+              <div className="text-sm text-white/60">PDF ready to send immediately</div>
+            </div>
+          </div>
+          <div className="flex items-center gap-4 p-4 bg-white/5 rounded-xl">
+            <CheckCircle size={24} className="text-cyan-400 flex-shrink-0" />
+            <div className="text-white/90">
+              <div className="font-semibold">Email Support</div>
+              <div className="text-sm text-white/60">Help if you need it</div>
+            </div>
+          </div>
+        </div>
+
+        <button
+          onClick={handlePayment}
+          className="w-full py-5 bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-bold rounded-2xl hover:shadow-2xl hover:shadow-cyan-500/50 transition-all duration-300 text-lg glow"
+        >
+          Pay $5.99 with Stripe →
+        </button>
+
+        <div className="mt-6 text-center text-xs text-white/40">
+          Secure payment processing by Stripe. Your data is encrypted and never stored.
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ========================================
+// 📱 SCREEN 8: DELIVERY/SUCCESS
+// ========================================
+
+const DeliveryScreen = ({ data }) => {
+  const [pdfGenerated, setPdfGenerated] = useState(false);
+
+  useEffect(() => {
+    if (!pdfGenerated && data.signatureData) {
+      generatePDF();
+      setPdfGenerated(true);
+    }
+  }, [data, pdfGenerated]);
+
+  const generatePDF = () => {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+    
+    const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    
+    // Sender info
+    doc.setFontSize(10);
+    doc.text(data.fullName, 150, 20);
+    doc.text(data.memberAddress, 150, 26);
+    doc.text(today, 150, 38);
+    
+    // Recipient info
+    doc.text(data.gymName, 20, 50);
+    doc.text(data.gymAddress, 20, 56);
+    
+    // Subject
+    doc.setFontSize(11);
+    doc.setFont(undefined, 'bold');
+    doc.text(`RE: Cancellation of Gym Membership ${data.accountNumber ? `(Account #${data.accountNumber})` : ''}`, 20, 68);
+    
+    // Body
+    doc.setFont(undefined, 'normal');
+    doc.setFontSize(10);
+    
+    let yPos = 80;
+    const lineHeight = 6;
+    const maxWidth = 170;
+    
+    const lines = [
+      `Dear ${data.gymName} Management,`,
+      '',
+      `I am writing to formally cancel my gym membership at ${data.gymName}, effective immediately. This letter serves as my official written notice of cancellation in accordance with ${data.state} law.`,
+      '',
+      data.legalText || '',
+      '',
+      'Please confirm receipt of this cancellation letter and process my membership cancellation immediately. Please cease all future billing to my account.',
+      '',
+      'Thank you for your prompt attention to this matter.',
+      '',
+      'Sincerely,',
+    ];
+    
+    lines.forEach(line => {
+      if (line === '') {
+        yPos += lineHeight;
+      } else {
+        const splitLines = doc.splitTextToSize(line, maxWidth);
+        splitLines.forEach(splitLine => {
+          if (yPos > 270) {
+            doc.addPage();
+            yPos = 20;
+          }
+          doc.text(splitLine, 20, yPos);
+          yPos += lineHeight;
+        });
+      }
+    });
+    
+    // Add signature if exists
+    if (data.signatureData) {
+      yPos += 10;
+      if (yPos > 250) {
+        doc.addPage();
+        yPos = 20;
+      }
+      try {
+        doc.addImage(data.signatureData, 'PNG', 20, yPos, 50, 20);
+        yPos += 25;
+      } catch (e) {
+        console.error('Signature add error:', e);
+      }
+    }
+    
+    doc.text(data.fullName, 20, yPos);
+    
+    // Save PDF
+    doc.save(`Gym-Cancellation-${data.gymName.replace(/\s+/g, '-')}.pdf`);
+  };
+
+  return (
+    <div className="animate-in max-w-2xl mx-auto text-center">
+      <div className="mb-8">
+        <div className="w-24 h-24 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-full flex items-center justify-center mx-auto mb-6 glow">
+          <CheckCircle size={56} className="text-white" />
+        </div>
+        
+        <h2 className="text-5xl md:text-6xl font-bold mb-4 bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
+          You're All Set!
+        </h2>
+        <p className="text-xl text-white/80">Your cancellation letter has been generated.</p>
+      </div>
+
+      <div className="glass rounded-3xl p-8 mb-6 text-left">
+        <h3 className="text-2xl font-bold text-white mb-6 flex items-center gap-3">
+          <FileText size={28} className="text-cyan-400" />
+          What Happens Next
+        </h3>
+        
+        <div className="space-y-4">
+          <div className="flex gap-4">
+            <div className="w-8 h-8 rounded-full bg-cyan-500/20 flex items-center justify-center flex-shrink-0 text-cyan-400 font-bold">
+              1
+            </div>
+            <div>
+              <div className="font-semibold text-white mb-1">Download Your PDF</div>
+              <div className="text-white/60 text-sm">Your letter downloaded automatically. Check your Downloads folder.</div>
+            </div>
+          </div>
+          
+          <div className="flex gap-4">
+            <div className="w-8 h-8 rounded-full bg-cyan-500/20 flex items-center justify-center flex-shrink-0 text-cyan-400 font-bold">
+              2
+            </div>
+            <div>
+              <div className="font-semibold text-white mb-1">Send to Your Gym</div>
+              <div className="text-white/60 text-sm">Email it, mail it, or deliver in person to the address on your contract.</div>
+            </div>
+          </div>
+          
+          <div className="flex gap-4">
+            <div className="w-8 h-8 rounded-full bg-cyan-500/20 flex items-center justify-center flex-shrink-0 text-cyan-400 font-bold">
+              3
+            </div>
+            <div>
+              <div className="font-semibold text-white mb-1">Keep Records</div>
+              <div className="text-white/60 text-sm">Save a copy and any confirmation you receive from the gym.</div>
+            </div>
+          </div>
+
+          <div className="flex gap-4">
+            <div className="w-8 h-8 rounded-full bg-cyan-500/20 flex items-center justify-center flex-shrink-0 text-cyan-400 font-bold">
+              4
+            </div>
+            <div>
+              <div className="font-semibold text-white mb-1">Follow Up</div>
+              <div className="text-white/60 text-sm">If they don't confirm within 10 business days, send another copy.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="glass rounded-2xl p-6 mb-6">
+        <div className="text-sm text-white/60 mb-2">Need help?</div>
+        <a 
+          href={`mailto:${CONFIG.OWNER_EMAIL}`}
+          className="text-cyan-400 hover:text-cyan-300 font-semibold transition-colors"
+        >
+          {CONFIG.OWNER_EMAIL}
+        </a>
+      </div>
+
+      <button
+        onClick={() => window.location.reload()}
+        className="px-8 py-4 glass text-white/90 font-semibold rounded-xl hover:bg-white/10 transition-all"
+      >
+        Start Another Cancellation
+      </button>
+    </div>
+  );
+};
+
+// ========================================
+// 💼 LICENSE MODAL
+// ========================================
+
+const LicenseModal = ({ onClose }) => {
+  const [step, setStep] = useState('info');
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    paymentLink: '',
+    agreed: false
+  });
+  const [licenseId, setLicenseId] = useState('');
+
+  const handlePurchase = () => {
+    if (!formData.name.trim() || !formData.email.includes('@') || !formData.paymentLink.startsWith('https://buy.stripe.com/') || !formData.agreed) {
+      alert('Please fill all fields and agree to terms');
+      return;
+    }
+    localStorage.setItem('gb_license_data', JSON.stringify(formData));
+    window.location.href = CONFIG.LICENSE_STRIPE_LINK;
+  };
+
+  const generateLicense = async () => {
+    setStep('generating');
+    const id = 'GB-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).substr(2, 5).toUpperCase();
+    setLicenseId(id);
+    const saleNum = getNextSaleNumber();
+    window.lastSaleNumber = saleNum;
+    await new Promise(r => setTimeout(r, 1500));
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+    const now = new Date();
+    doc.setFontSize(20);
+    doc.setFont(undefined, 'bold');
+    doc.text('GOTCHA BRO WIDGET LICENSE', 105, 20, { align: 'center' });
+    doc.setFontSize(12);
+    doc.text(`Sale #${saleNum}`, 20, 40);
+    doc.text(`License ID: ${id}`, 20, 48);
+    doc.setFont(undefined, 'normal');
+    doc.text(`Licensee: ${formData.name}`, 20, 56);
+    doc.text(`Email: ${formData.email}`, 20, 64);
+    doc.text(`Stripe: ${formData.paymentLink}`, 20, 72);
+    doc.text(`Date: ${now.toLocaleString()}`, 20, 80);
+    doc.save(`GOTCHA-BRO-LICENSE-${saleNum}.pdf`);
+
+    const widgetHTML = document.documentElement.outerHTML.replace(CONFIG.USER_STRIPE_LINK, formData.paymentLink);
+    const blob = new Blob([widgetHTML], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `GOTCHA-BRO-Widget-${saleNum}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    window.lastEmailNotification = `LICENSE SALE #${saleNum}\nID: ${id}\nName: ${formData.name}\nEmail: ${formData.email}`;
+    setStep('success');
+  };
+
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('license') === 'true') {
+      const saved = localStorage.getItem('gb_license_data');
+      if (saved) {
+        setFormData(JSON.parse(saved));
+        localStorage.removeItem('gb_license_data');
+        generateLicense();
+      }
+    }
+  }, []);
+
+  return (
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-6 z-[999]" onClick={onClose}>
+      <div className="glass rounded-3xl p-10 max-w-2xl w-full max-h-[90vh] overflow-y-auto border border-white/10" onClick={(e) => e.stopPropagation()}>
+        
+        {step === 'info' && (
+          <>
+            <div className="flex justify-between items-start mb-6">
+              <h2 className="text-4xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">License This Widget</h2>
+              <button onClick={onClose} className="text-white/40 hover:text-white text-3xl">&times;</button>
+            </div>
+
+            <div className="bg-white/5 border border-white/20 rounded-2xl p-6 mb-6 text-center">
+              <div className="text-6xl font-bold text-white mb-2">$197</div>
+              <div className="text-white/60">One-time payment • Lifetime license</div>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-4 mb-6">
+              <div className="bg-white/5 border border-white/10 rounded-xl p-4">
+                <div className="text-cyan-400 font-bold mb-1">Complete Source</div>
+                <div className="text-white/60 text-sm">This exact widget</div>
+              </div>
+              <div className="bg-white/5 border border-white/10 rounded-xl p-4">
+                <div className="text-cyan-400 font-bold mb-1">Your Stripe Link</div>
+                <div className="text-white/60 text-sm">Collect $5.99 each</div>
+              </div>
+              <div className="bg-white/5 border border-white/10 rounded-xl p-4">
+                <div className="text-cyan-400 font-bold mb-1">Deploy Anywhere</div>
+                <div className="text-white/60 text-sm">Your domains</div>
+              </div>
+              <div className="bg-white/5 border border-white/10 rounded-xl p-4">
+                <div className="text-cyan-400 font-bold mb-1">100% Revenue</div>
+                <div className="text-white/60 text-sm">Keep everything</div>
+              </div>
+            </div>
+
+            <div className="bg-white/5 border border-white/10 rounded-xl p-6 mb-6">
+              <div className="text-white font-bold mb-3">What You Get:</div>
+              <div className="space-y-2 text-sm text-white/80">
+                <div>✓ Complete widget HTML file</div>
+                <div>✓ Pre-configured with your Stripe link</div>
+                <div>✓ All 8 customer screens working</div>
+                <div>✓ Google Maps integration</div>
+                <div>✓ PDF generation system</div>
+                <div>✓ State-by-state legal database</div>
+                <div>✓ Deploy in under 5 minutes</div>
+              </div>
+            </div>
+
+            <div className="bg-red-500/10 border-2 border-red-500 rounded-xl p-4 mb-6">
+              <div className="text-red-400 font-bold mb-2">⚠️ BEFORE YOU PURCHASE:</div>
+              <div className="text-white/90 text-sm space-y-1">
+                <div>• Create a Stripe account at <span className="font-mono">stripe.com</span> (free)</div>
+                <div>• Set up a $5.99 payment link in your Stripe dashboard</div>
+                <div>• Have your Stripe payment link ready to paste during checkout</div>
+              </div>
+            </div>
+
+            <button onClick={() => setStep('form')} className="w-full bg-black hover:bg-gray-900 text-white text-xl font-bold py-6 rounded-2xl transition-all">
+              Continue
+            </button>
+          </>
+        )}
+
+        {step === 'form' && (
+          <>
+            <h2 className="text-4xl font-bold mb-6 bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">License Agreement</h2>
+            
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-6 mb-6 max-h-48 overflow-y-auto text-sm">
+              <p className="mb-3 text-white/80">This license grants you the right to deploy and use the GOTCHA BRO widget commercially. You keep 100% of customer revenue. You may NOT rebrand the widget. All sales final.</p>
+            </div>
+
+            <div className="space-y-4 mb-6">
+              <div>
+                <label className="block text-sm font-semibold mb-2 text-white/80">Full Legal Name *</label>
+                <input type="text" className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white" placeholder="John Doe" value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold mb-2 text-white/80">Email Address *</label>
+                <input type="email" className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white" placeholder="you@example.com" value={formData.email} onChange={(e) => setFormData({...formData, email: e.target.value})} />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold mb-2 text-white/80">Your Stripe Payment Link *</label>
+                <input type="url" className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white text-sm" placeholder="https://buy.stripe.com/..." value={formData.paymentLink} onChange={(e) => setFormData({...formData, paymentLink: e.target.value})} />
+                <p className="text-xs text-white/50 mt-1">Widget will use this to collect $5.99 per customer</p>
+              </div>
+              <div className="flex items-start gap-3 bg-white/5 border border-white/10 p-4 rounded-xl">
+                <input type="checkbox" className="mt-1 w-5 h-5 accent-cyan-500" checked={formData.agreed} onChange={(e) => setFormData({...formData, agreed: e.target.checked})} />
+                <span className="text-sm text-white/80">I agree to the license terms and understand this purchase is final.</span>
+              </div>
+            </div>
+
+            <button onClick={handlePurchase} className="w-full bg-black hover:bg-gray-900 text-white text-xl font-bold py-6 rounded-2xl mb-3">
+              Purchase License Now - $197
+            </button>
+            <button onClick={() => setStep('info')} className="w-full text-white/60 hover:text-white text-sm py-2">← Back</button>
+          </>
+        )}
+
+        {step === 'generating' && (
+          <div className="text-center py-12">
+            <div className="text-6xl mb-6">⚙️</div>
+            <div className="text-2xl font-bold text-white mb-4">Generating Your License...</div>
+          </div>
+        )}
+
+        {step === 'success' && (
+          <>
+            <div className="text-center mb-8">
+              <div className="w-20 h-20 bg-white/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                <div className="text-4xl">✓</div>
+              </div>
+              <h2 className="text-3xl font-bold text-white mb-2">License Activated!</h2>
+              <p className="text-white/60">Sale #{window.lastSaleNumber} • {licenseId}</p>
+            </div>
+
+            <div className="space-y-4 mb-8">
+              <div className="bg-white/5 border border-white/10 rounded-xl p-4">
+                <div className="font-bold text-white mb-1">GOTCHA-BRO-LICENSE-{window.lastSaleNumber}.pdf</div>
+                <div className="text-white/60 text-sm">Your license certificate</div>
+              </div>
+              <div className="bg-white/5 border border-white/10 rounded-xl p-4">
+                <div className="font-bold text-white mb-1">GOTCHA-BRO-Widget-{window.lastSaleNumber}.html</div>
+                <div className="text-white/60 text-sm">Widget with your Stripe link</div>
+              </div>
+            </div>
+
+            <div className="bg-cyan-500/10 border-2 border-cyan-500 rounded-xl p-5 mb-6">
+              <div className="text-cyan-400 font-bold mb-3">🚀 HOW TO DEPLOY YOUR WIDGET:</div>
+              <div className="text-white/90 text-sm space-y-2">
+                <div><strong>1.</strong> Your widget is pre-configured with YOUR Stripe link</div>
+                <div><strong>2.</strong> Upload the HTML file to your web hosting or GitHub Pages</div>
+                <div><strong>3.</strong> That's it! Your widget is ready to accept payments immediately</div>
+                <div className="text-white/60 text-xs mt-3">No coding required. No setup needed. Start earning $5.99 per customer instantly.</div>
+              </div>
+            </div>
+
+            <div className="bg-white/5 border border-white/10 rounded-xl p-4 mb-6">
+              <textarea className="w-full h-32 p-3 bg-black/30 border border-white/10 rounded-lg text-white/80 text-xs resize-none" readOnly value={window.lastEmailNotification || ''} onClick={(e) => e.target.select()} />
+              <button onClick={() => { navigator.clipboard.writeText(window.lastEmailNotification || ''); alert('✓ Copied!'); }} className="mt-3 w-full bg-white/10 hover:bg-white/20 text-white font-bold py-2 rounded-lg text-sm">
+                Copy to Clipboard
+              </button>
+            </div>
+
+            <button onClick={onClose} className="w-full bg-black hover:bg-gray-900 text-white font-bold py-4 rounded-xl">Done</button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
+
+const App = () => {
+  const [currentStep, setCurrentStep] = useState(Step.Landing);
+  const [showLicenseModal, setShowLicenseModal] = useState(false);
+  const [formData, setFormData] = useState({
+    fullName: '',
+    memberAddress: '',
+    accountNumber: '',
+    gymName: '',
+    gymAddress: '',
+    state: '',
+    agreedToLaw: false,
+    membershipStartDate: '',
+    signupMethod: '',
+    reasons: [],
+    legalText: '',
+    signatureData: '',
+    membershipIdFile: '',
+    membershipIdFileName: ''
+  });
+
+  const nextStep = useCallback(() => {
+    setCurrentStep((prev) => (prev < Step.Delivery ? prev + 1 : prev));
+  }, []);
+
+  const prevStep = useCallback(() => {
+    setCurrentStep((prev) => (prev > Step.Landing ? prev - 1 : prev));
+  }, []);
+
+  const updateFormData = (newData) => {
+    setFormData((prev) => ({ ...prev, ...newData }));
+  };
+
+  const resetProgress = () => {
+    if (confirm("Clear all progress and start over?")) {
+      window.location.reload();
+    }
+  };
+
+  const renderStep = () => {
+    switch (currentStep) {
+      case Step.Landing:
+        return <LandingScreen onStart={nextStep} onBuyLicense={() => setShowLicenseModal(true)} />;
+      case Step.Intake:
+        return <IntakeScreen data={formData} onUpdate={updateFormData} onNext={nextStep} />;
+      case Step.Details:
+        return <DetailsScreen data={formData} onUpdate={updateFormData} onNext={nextStep} />;
+      case Step.Verification:
+        return <VerificationScreen data={formData} onUpdate={updateFormData} onNext={nextStep} />;
+      case Step.Preview:
+        return <PreviewScreen data={formData} onNext={nextStep} />;
+      case Step.Signature:
+        return <SignatureScreen data={formData} onUpdate={updateFormData} onNext={nextStep} />;
+      case Step.Payment:
+        return <PaymentScreen data={formData} />;
+      case Step.Delivery:
+        return <DeliveryScreen data={formData} />;
+      default:
+        return <LandingScreen onStart={nextStep} onBuyLicense={() => setShowLicenseModal(true)} />;
+    }
+  };
+
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('success') === 'true') {
+      const savedData = localStorage.getItem('gotchaBroFormData');
+      if (savedData) {
+        setFormData(JSON.parse(savedData));
+        setCurrentStep(Step.Delivery);
+        localStorage.removeItem('gotchaBroFormData');
+      }
+    }
+    if (urlParams.get('license') === 'true') {
+      setShowLicenseModal(true);
+    }
+  }, []);
+
+  return (
+    <div className="min-h-screen flex flex-col items-center text-white selection:bg-cyan-500 selection:text-black">
+      {currentStep !== Step.Landing && currentStep !== Step.Delivery && (
+        <header className="w-full max-w-4xl px-6 py-8 flex items-center justify-between sticky top-0 bg-gradient-to-b from-black/80 to-transparent backdrop-blur-xl z-50 border-b border-white/5">
+          <button
+            onClick={prevStep}
+            className="flex items-center text-sm font-medium text-white/60 hover:text-white transition-colors"
+          >
+            <ChevronLeft size={18} className="mr-1" />
+            Back
+          </button>
+          <div className="text-xl font-bold tracking-tight bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
+            GOTCHA BRO
+          </div>
+          <button
+            onClick={resetProgress}
+            className="flex items-center text-white/40 hover:text-red-400 transition-colors"
+            title="Reset Progress"
+          >
+            <RotateCcw size={16} />
+          </button>
+        </header>
+      )}
+
+      {currentStep !== Step.Landing && currentStep !== Step.Delivery && (
+        <div className="w-full max-w-4xl px-6 mb-8">
+          <ProgressBar currentStep={currentStep} totalSteps={Object.keys(Step).length / 2 - 1} />
+        </div>
+      )}
+
+      <main className="w-full max-w-4xl flex-1 px-6 pb-20">
+        <div className="transition-all duration-300 ease-in-out">
+          {renderStep()}
+        </div>
+      </main>
+
+      <footer className="py-8 text-[10px] text-white/30 font-medium tracking-widest uppercase text-center border-t border-white/5 w-full">
+        © {new Date().getFullYear()} GOTCHA BRO by Nova Connect LLC • v{CONFIG.VERSION}
+      </footer>
+
+      {showLicenseModal && <LicenseModal onClose={() => setShowLicenseModal(false)} />}
+    </div>
+  );
+};
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+
+// ========================================
+// 👑 GOD MODE ACTIVATION - MOBILE + DESKTOP
+// ========================================
+
+// Desktop: Ctrl+Shift+G
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey && e.shiftKey && e.key === 'G') {
+    e.preventDefault();
+    const badge = document.getElementById('admin-badge');
+    if (badge) {
+      badge.style.display = badge.style.display === 'none' ? 'block' : 'none';
+    }
+  }
+});
+
+// Mobile: Triple-tap "O" in GOTCHA BRO logo + PIN 2020
+let tapCount = 0;
+let tapTimer = null;
+
+document.addEventListener('click', (e) => {
+  const text = e.target.textContent || '';
+  const isLogo = e.target.closest('.text-transparent') || e.target.closest('[class*="GOTCHA"]');
+  
+  if (text.includes('O') && isLogo) {
+    tapCount++;
+    clearTimeout(tapTimer);
+    
+    if (tapCount === 3) {
+      const pin = prompt('Enter Admin PIN:');
+      if (pin === '2020') {
+        const password = prompt('Enter Admin Password:');
+        if (password && password === CONFIG.ADMIN_PASSWORD) {
+          AdminGodMode.activateBypass(24);
+          alert('✅ God Mode Activated!');
+          const badge = document.getElementById('admin-badge');
+          if (badge) badge.style.display = 'block';
+        } else {
+          alert('❌ Incorrect password');
+        }
+      } else if (pin) {
+        alert('❌ Incorrect PIN');
+      }
+      tapCount = 0;
+    }
+    
+    tapTimer = setTimeout(() => { tapCount = 0; }, 600);
+  }
+});
+
+    </script>
+</body>
+</html>
